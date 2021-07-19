@@ -1,0 +1,39 @@
+{
+  "id": "4a7fccc5-90e5-45f5-86ee-5d8f99429fc5",
+  "name": "Fusion Integration CRM",
+  "publisher": "TComTech",
+  "version": "18.0.0.0",
+  "brief": "",
+  "description": "",
+  "privacyStatement": "",
+  "EULA": "",
+  "help": "",
+  "url": "",
+  "logo": "",
+  "dependencies": [
+    {
+    "id": "6317e880-5065-4f48-98ff-ff40f914c170",
+    "publisher": "TComTech",
+    "name": "Fusion Base Extention",
+    "version": "18.0.0.4"
+    },
+    {
+    "id": "fa072300-3657-413a-a5c9-85c545dc2147",
+    "publisher": "TComTech",
+    "name": "Fusion Box Package",
+    "version": "18.0.0.3"
+    }
+  ],
+  "screenshots": [],
+  "platform": "18.0.0.0",
+  "application": "18.0.0.0",
+  "idRanges": [
+    {
+      "from": 50000,
+      "to": 50149
+    }
+  ],
+  "contextSensitiveHelpUrl": "https://FusionIntegrationCRM.com/help/",
+  "showMyCode": true,
+  "runtime": "7.0"
+}
