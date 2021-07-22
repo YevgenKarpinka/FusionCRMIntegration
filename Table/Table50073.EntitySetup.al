@@ -18,6 +18,12 @@ table 50073 "Entity Setup"
             CaptionML = ENU = 'Rank',
                         RUS = 'Рейтинг';
         }
+        field(3; Description; Text[50])
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'Description',
+                        RUS = 'Описание';
+        }
     }
 
     keys
@@ -25,6 +31,9 @@ table 50073 "Entity Setup"
         key(Key1; Code)
         {
             Clustered = true;
+        }
+        key(skey1; Rank)
+        {
         }
     }
 

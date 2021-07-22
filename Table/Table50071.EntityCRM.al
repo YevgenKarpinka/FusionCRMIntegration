@@ -34,8 +34,8 @@ table 50071 "Entity CRM"
         field(5; "Modify Date Time"; DateTime)
         {
             DataClassification = CustomerContent;
-            CaptionML = ENU = 'Create Date Time',
-                        RUS = 'Дата и время создания';
+            CaptionML = ENU = 'Modify Date Time',
+                        RUS = 'Дата и время модификации';
         }
         field(6; "Create User ID"; Code[50])
         {

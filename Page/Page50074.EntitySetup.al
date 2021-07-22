@@ -4,7 +4,7 @@ page 50074 "Entity Setup"
     ApplicationArea = All;
     UsageCategory = Administration;
     SourceTable = "Entity Setup";
-    SourceTableView = sorting(Code) order(descending);
+    SourceTableView = sorting(Rank);
     AccessByPermission = tabledata "Entity Setup" = rimd;
 
     layout
@@ -14,6 +14,11 @@ page 50074 "Entity Setup"
             repeater(RepeaterName)
             {
                 field(Code; Rec.Code)
+                {
+                    ApplicationArea = All;
+
+                }
+                field(Description; Rec.Description)
                 {
                     ApplicationArea = All;
 
@@ -37,6 +42,7 @@ page 50074 "Entity Setup"
                             RUS = 'Сущности CRM';
                 ApplicationArea = All;
                 RunObject = Page "Entity CRM List";
+                RunPageMode = View;
             }
         }
     }
