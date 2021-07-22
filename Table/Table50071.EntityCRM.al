@@ -11,6 +11,7 @@ table 50071 "Entity CRM"
             DataClassification = CustomerContent;
             CaptionML = ENU = 'Code',
                         RUS = 'Код';
+            TableRelation = "Entity Setup";
         }
         field(2; Key1; Code[20])
         {
@@ -59,6 +60,12 @@ table 50071 "Entity CRM"
             DataClassification = CustomerContent;
             CaptionML = ENU = 'Id CRM',
                         RUS = 'ИД CRM';
+        }
+        field(10; "Id BC"; Guid)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'Id BC',
+                        RUS = 'ИД BC';
         }
     }
 

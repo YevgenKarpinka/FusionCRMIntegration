@@ -38,6 +38,11 @@ page 50071 "Entity CRM List"
                     ApplicationArea = All;
 
                 }
+                field("Id BC"; Rec."Id BC")
+                {
+                    ApplicationArea = All;
+
+                }
                 field("Create User ID"; Rec."Create User ID")
                 {
                     ApplicationArea = All;
