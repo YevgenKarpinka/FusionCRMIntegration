@@ -83,6 +83,7 @@ table 50072 "Integration CRM Log"
 
     var
         Window: Dialog;
+        IntegrtionCRM: Codeunit "Integration CRM";
         ConfirmDeletingEntriesQst: TextConst ENU = 'Are you sure that you want to delete job queue log entries?',
                                             RUS = 'Вы действительно хотите удалить записи журнала очереди работ?';
         DeletingMsg: TextConst ENU = 'Deleting Entries...',
@@ -130,34 +131,55 @@ table 50072 "Integration CRM Log"
         exit(TypeHelper.ReadAsTextWithSeparator(InStream, TypeHelper.LFSeparator));
     end;
 
-    procedure InsertOperationToLog(Source: Code[20]; RestMethod: Code[10]; _URL: Text; _Autorization: Text; _Request: Text; _Response: Text; isSuccess: Boolean)
+    procedure InsertOperationToLog(Source: Code[20]; RestMethod: Code[10]; _URL: Text; _Autorization: Text; _Request: Text; _Response: Text)
     var
         LastEntryNo: Integer;
+        isError: Boolean;
+        // Key1: Code[20];
+        // idCRM: Guid;
+        // idBC: Guid;
+        jaResponse: JsonArray;
+        jtResponse: JsonToken;
+        jaRequest: JsonArray;
+        jtRequest: JsonToken;
+        locResponse: Text;
+        locRequest: Text;
     begin
-        LastEntryNo := GetLastEntryNo();
-        Init();
-        "Entry No." := LastEntryNo + 1;
-        "Operation Date" := CurrentDateTime;
-        "Source Operation" := Source;
-        Autorization := CopyStr(_Autorization, 1, MaxStrLen(Autorization));
-        "Rest Method" := RestMethod;
-        URL := _URL;
-        Success := isSuccess;
-        "Company Name" := CompanyName;
-        "User Id" := UserId;
-        Insert();
-        SetRequest(_Request);
-        SetResponse(_Response);
+        jaResponse.ReadFrom(_Response);
+        jaRequest.ReadFrom(_Request);
+        foreach jtResponse in jaResponse do begin
+            isError := IntegrtionCRM.GetJSToken(jtResponse.AsObject(), 'error').AsValue().AsBoolean();
+            jtResponse.WriteTo(locResponse);
+
+            jaRequest.Get(jaResponse.IndexOf(jtResponse), jtRequest);
+            jtRequest.WriteTo(locRequest);
+
+            LastEntryNo := GetLastEntryNo();
+            Init();
+            "Entry No." := LastEntryNo + 1;
+            "Operation Date" := CurrentDateTime;
+            "Source Operation" := Source;
+            Autorization := CopyStr(_Autorization, 1, MaxStrLen(Autorization));
+            "Rest Method" := RestMethod;
+            URL := _URL;
+            Success := not isError;
+            "Company Name" := CompanyName;
+            "User Id" := UserId;
+            Insert();
+            SetRequest(locRequest);
+            SetResponse(locResponse);
+
+        end;
         Commit();
     end;
 
     local procedure GetLastEntryNo(): Integer
     var
-        LastIntegrationLog: Record "Integration Log";
+        LastIntegrationCRMLog: Record "Integration CRM Log";
     begin
-        LastIntegrationLog.LockTable();
-        if LastIntegrationLog.FindLast() then
-            exit(LastIntegrationLog."Entry No.");
+        LastIntegrationCRMLog.LockTable();
+        if LastIntegrationCRMLog.FindLast() then
+            exit(LastIntegrationCRMLog."Entry No.");
         exit(0);
     end;
 

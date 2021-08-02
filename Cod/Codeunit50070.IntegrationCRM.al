@@ -6,6 +6,7 @@ codeunit 50070 "Integration CRM"
     end;
 
     var
+        Window: Dialog;
         ShipStationSetup: Record "ShipStation Setup";
         IntegrationCRMSetup: Record "Integration CRM Setup";
         EntityCRM: Record "Entity CRM";
@@ -29,7 +30,13 @@ codeunit 50070 "Integration CRM"
         lblCustomer: Label 'CUSTOMER';
         lblInvoice: Label 'INVOICE';
         lblPackage: Label 'PACKAGE';
+        lblSubStrURL: Label '%1%2';
+        txtDialog: TextConst ENU = 'Create Request By %1\', RUS = 'Create Request By %1\';
+        txtProgressBar: TextConst ENU = 'Rec No #2 From #3', RUS = 'Rec No #2 From #3';
+        Recs: Integer;
+        RecNo: Integer;
         blankGuid: Guid;
+
 
 
     local procedure Execute()
@@ -37,14 +44,15 @@ codeunit 50070 "Integration CRM"
         EntitySetup: Record "Entity Setup";
     begin
         EntityCRM.Reset();
-        EntityCRM.SetCurrentKey("Modify In CRM");
+        EntityCRM.SetCurrentKey(Code, "Modify In CRM");
         EntityCRM.SetRange("Modify In CRM", false);
         if EntityCRM.IsEmpty then exit;
 
         if EntitySetup.FindSet() then
             repeat
                 EntityCRM.SetRange(Code, EntitySetup.Code);
-                if EntityCRM.FindFirst() then
+                EntityCRM.SetRange("Modify In CRM", false);
+                if EntityCRM.FindSet() then
                     OnPostEntity(EntitySetup.Code);
             until EntitySetup.Next() = 0;
     end;
@@ -91,7 +99,7 @@ codeunit 50070 "Integration CRM"
         ResponseMessage.Content.ReadAs(responseBody);
 
         // Insert Operation to Log
-        IntegrationCRMLog.InsertOperationToLog('CUSTOM_CRM_API', requestMethod, requestURL, '', requestBody, responseBody, ResponseMessage.IsSuccessStatusCode());
+        IntegrationCRMLog.InsertOperationToLog('CUSTOM_CRM_API', requestMethod, requestURL, '', requestBody, responseBody);
 
         exit(ResponseMessage.IsSuccessStatusCode);
     end;
@@ -101,30 +109,37 @@ codeunit 50070 "Integration CRM"
         requestBody: Text;
         responseBody: Text;
     begin
-        // create requestBody
-        case entityType of
-            lblUoM:
-                CreateRequestBodyForPostUoms(requestBody);
-            lblItem:
-                CreateRequestBodyForPostItems(requestBody);
-            lblCustomer:
-                CreateRequestBodyForPostCustomer(requestBody);
-            lblInvoice:
-                CreateRequestBodyForPostInvoice(requestBody);
-            lblPackage:
-                CreateRequestBodyForPostPackage(requestBody);
-        end;
+        repeat
+            // create requestBody
+            case entityType of
+                lblUoM:
+                    CreateRequestBodyForPostUoms(requestBody);
+                lblItem:
+                    CreateRequestBodyForPostItems(requestBody);
+                lblCustomer:
+                    CreateRequestBodyForPostCustomer(requestBody);
+                lblInvoice:
+                    CreateRequestBodyForPostInvoice(requestBody);
+                lblPackage:
+                    CreateRequestBodyForPostPackage(requestBody);
+            end;
 
-        if GetEntity(entityType, requestMethodPOST, requestBody, responseBody) then begin
+            // while testing
+            // if true then begin
+            // SaveStreamToFile(requestBody, 'requestBody.txt');
+            // exit;
+            // end else begin
+            GetEntity(entityType, requestMethodPOST, requestBody, responseBody);
             UpdateEntityIDAndStatus(entityType, responseBody);
-        end;
+        // end;
+        until EntityCRM.IsEmpty;
 
         exit(false);
     end;
 
     local procedure UpdateEntityIDAndStatus(entityType: Code[30]; responseBody: Text);
     var
-        isSucces: Boolean;
+        isError: Boolean;
         Key1: Code[20];
         idCRM: Guid;
         idBC: Guid;
@@ -133,19 +148,20 @@ codeunit 50070 "Integration CRM"
     begin
         jaEntity.ReadFrom(responseBody);
         foreach jtEntity in jaEntity do begin
-            isSucces := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
-            Key1 := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
-            idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
-            idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-            if isSucces then
+            isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
+            if not isError then begin
+                Key1 := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
+                idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
                 EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM);
+            end;
         end;
     end;
 
     local procedure GetURLForPostEntity(entityType: Code[30]): Text
     begin
         if IntegrationCRMSetup.Get(entityType) then begin
-            exit(StrSubstNo(IntegrationCRMSetup.URL, IntegrationCRMSetup.Param));
+            exit(StrSubstNo(lblSubStrURL, IntegrationCRMSetup.URL, IntegrationCRMSetup.Param));
         end;
     end;
 
@@ -155,23 +171,34 @@ codeunit 50070 "Integration CRM"
     begin
         Clear(Body);
         Clear(requestBody);
-        UoM.Reset();
-        EntityCRM.Reset();
-        EntityCRM.SetRange(Code, lblUoM);
+        RecNo := 0;
+        Recs := EntityCRM.Count;
 
-        if not EntityCRM.FindSet() then exit;
+        EntityCRM.FindSet();
+
+        if GuiAllowed then begin
+            Window.Open(StrSubstNo(txtDialog, UoM.TableCaption) + txtProgressBar);
+            Window.Update(3, Recs);
+        end;
+
         repeat
-            UoM.SetRange(Code, EntityCRM.Key1);
-            if UoM.FindSet() then begin
+            RecNo += 1;
+            if UoM.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
-                Body.Add('bcid', UoM.SystemId);
+                Body.Add('bcid', Format(UoM.SystemId, 36, 4));
                 Body.Add('name', UoM.Code);
                 Body.Add('description', UoM.Description);
 
                 bodyArray.Add(Body);
+
+                if GuiAllowed then
+                    Window.Update(2, RecNo);
             end;
         until EntityCRM.Next() = 0;
+
+        if GuiAllowed then
+            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -182,57 +209,90 @@ codeunit 50070 "Integration CRM"
     begin
         Clear(Body);
         Clear(requestBody);
-        Item.Reset();
-        EntityCRM.Reset();
-        EntityCRM.SetRange(Code, lblItem);
-        if EntityCRM.IsEmpty then exit;
+        RecNo := 0;
+        Recs := EntityCRM.Count;
 
         EntityCRM.FindSet();
-        repeat
-            UoM.SetRange(Code, EntityCRM.Key1);
-            if Item.FindSet() then begin
-                Clear(Body);
-                if ItemDescr.Get(Item."No.") then;
 
-                Body.Add('bcid', Item.SystemId);
+        if GuiAllowed then begin
+            Window.Open(StrSubstNo(txtDialog, Item.TableCaption) + txtProgressBar);
+            Window.Update(3, Recs);
+        end;
+
+        repeat
+            RecNo += 1;
+            if Item.Get(EntityCRM.Key1) then begin
+                Clear(Body);
+
+                Body.Add('bcid', Format(Item.SystemId, 36, 4));
                 Body.Add('item_number', Item."No.");
-                Body.Add('name_eng', ItemDescr."Name ENG");
-                Body.Add('name_eng_2', ItemDescr."Name ENG 2");
-                Body.Add('name_ru', ItemDescr."Name RU");
-                Body.Add('name_ru_2', ItemDescr."Name RU 2");
-                Body.Add('description_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo("Description RU")));
-                Body.Add('ingredients_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo("Ingredients RU")));
-                Body.Add('indications_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo("Indications RU")));
-                Body.Add('directions_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo("Directions RU")));
-                Body.Add('warning', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo(Warning)));
-                Body.Add('legal_disclaimer', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo("Legal Disclaimer")));
-                Body.Add('description', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo(Description)));
-                Body.Add('ingredients', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo(Ingredients)));
-                Body.Add('indications', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo(Indications)));
-                Body.Add('directions', Blob2TextFromRec(Database::"Item Description", ItemDescr.FieldNo(Directions)));
+                if ItemDescr.Get(Item."No.") then begin
+                    Body.Add('name_eng', ItemDescr."Name ENG");
+                    Body.Add('name_eng_2', ItemDescr."Name ENG 2");
+                    Body.Add('name_ru', ItemDescr."Name RU");
+                    Body.Add('name_ru_2', ItemDescr."Name RU 2");
+                    Body.Add('description_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Description RU")));
+                    Body.Add('ingredients_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Ingredients RU")));
+                    Body.Add('indications_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Indications RU")));
+                    Body.Add('directions_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Directions RU")));
+                    Body.Add('warning', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Warning)));
+                    Body.Add('legal_disclaimer', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Legal Disclaimer")));
+                    Body.Add('description', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Description)));
+                    Body.Add('ingredients', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Ingredients)));
+                    Body.Add('indications', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Indications)));
+                    Body.Add('directions', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Directions)));
+                end;
                 Body.Add('price', Item."Unit Price");
-                Body.Add('baseuom', Item."Base Unit of Measure");
+                Body.Add('baseuom', Format(GetUoMIdByCode(Item."Base Unit of Measure"), 36, 4));
                 Body.Add('promotional_price', GetPromotionalPrice(Item."No."));
                 Body.Add('productuom', GetItemUoM(Item."No."));
 
                 bodyArray.Add(Body);
+
+                if GuiAllowed then
+                    Window.Update(2, RecNo);
             end;
-        until EntityCRM.Next() = 0;
+
+            if RecNo < 100 then
+                EntityCRM.Next();
+
+            if (RecNo = 100) then
+                EntityCRM.SetFilter(Key1, '%1..', EntityCRM.Key1)
+            else
+                if (Recs = RecNo) then
+                    EntityCRM.SetFilter(Key1, '%1..', IncStr(EntityCRM.Key1));
+
+        until (RecNo = 100) or (Recs = RecNo);
+
+        if GuiAllowed then
+            Window.Close();
 
         bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure GetUoMIdByCode(UoMCode: Code[10]): Guid
+    var
+        locUoM: Record "Unit of Measure";
+    begin
+        if locUoM.Get(UoMCode) then
+            exit(locUoM.SystemId);
+
+        exit('');
     end;
 
     local procedure GetPromotionalPrice(ItemNo: Code[20]): Boolean
     var
         locItemDescr: Record "Item Description";
     begin
-        locItemDescr.Get(ItemNo);
-        exit(locItemDescr."Sell-out" >= DT2Date(CurrentDateTime));
+        if locItemDescr.Get(ItemNo) then
+            exit(locItemDescr."Sell-out" >= DT2Date(CurrentDateTime));
+        exit(false);
     end;
 
     local procedure GetItemUoM(ItemNo: Code[20]): JsonArray
     var
         locItemUoM: Record "Item Unit of Measure";
+        locUoM: Record "Unit of Measure";
         locJsonObject: JsonObject;
         locJsonArray: JsonArray;
     begin
@@ -240,9 +300,10 @@ codeunit 50070 "Integration CRM"
         if locItemUoM.FindSet() then
             repeat
                 Clear(locJsonObject);
+                locUoM.Get(locItemUoM.Code);
 
-                locJsonObject.Add('uom_code', locItemUoM.Code);
-                locJsonObject.Add('id', locItemUoM.SystemId);
+                locJsonObject.Add('uom_id', Format(GetUoMIdByCode(locUoM.Code), 36, 4));
+                locJsonObject.Add('bcid', Format(locItemUoM.SystemId, 36, 4));
                 locJsonObject.Add('qty_per_unit_of_measure', locItemUoM."Qty. per Unit of Measure");
                 locJsonObject.Add('unit_price', GetUnitPriceByItemUoM(ItemNo, locItemUoM."Qty. per Unit of Measure"));
                 locJsonObject.Add('promotional_price', GetPromotionalPrice(ItemNo));
@@ -265,36 +326,50 @@ codeunit 50070 "Integration CRM"
         bodyArray: JsonArray;
     begin
         Clear(requestBody);
-        EntityCRM.Reset();
-        EntityCRM.SetRange(Code, lblCustomer);
-        if EntityCRM.IsEmpty then exit;
+        RecNo := 0;
+        Recs := EntityCRM.Count;
 
         EntityCRM.FindSet();
+
+        if GuiAllowed then begin
+            Window.Open(StrSubstNo(txtDialog, Customer.TableCaption) + txtProgressBar);
+            Window.Update(3, Recs);
+        end;
+
         repeat
-            Customer.Get(EntityCRM.Key1);
-            Customer.CalcFields(Balance, "Balance Due");
-            Clear(Body);
+            RecNo += 1;
+            if Customer.Get(EntityCRM.Key1) then begin
+                Customer.CalcFields(Balance, "Balance Due");
+                Clear(Body);
 
-            Body.Add('bcid', Customer.SystemId);
-            Body.Add('bcNumber', Customer."No.");
-            Body.Add('name', Customer.Name + Customer."Name 2");
-            Body.Add('balance', Customer.Balance);
-            Body.Add('balanceDue', Customer."Balance Due");
-            Body.Add('creditLimit', Customer."Credit Limit (LCY)");
-            Body.Add('totalSales', CustomerGetTotalSales(Customer."No."));
-            Body.Add('address', Customer.Address + Customer."Address 2");
-            Body.Add('country', Customer."Country/Region Code");
-            Body.Add('city', Customer.City);
-            Body.Add('state', Customer.County);
-            Body.Add('zipCode', Customer."Post Code");
-            Body.Add('contactName', Customer.Contact);
-            Body.Add('telephone', Customer."Phone No.");
-            Body.Add('mobilePhone', Customer."Mobile Phone No.");
-            Body.Add('emailAddress', Customer."E-Mail");
-            Body.Add('faxNo', Customer."Fax No.");
+                Body.Add('bcid', Format(Customer.SystemId, 36, 4));
+                Body.Add('bc_number', Customer."No.");
+                Body.Add('name', Customer.Name + Customer."Name 2");
+                Body.Add('balance', Customer.Balance);
+                Body.Add('balance_due', Customer."Balance Due");
+                Body.Add('credit_limit', Customer."Credit Limit (LCY)");
+                Body.Add('total_sales', CustomerGetTotalSales(Customer."No."));
+                Body.Add('address', Customer.Address + Customer."Address 2");
+                Body.Add('country', Customer."Country/Region Code");
+                Body.Add('city', Customer.City);
+                Body.Add('state', Customer.County);
+                Body.Add('zip_code', Customer."Post Code");
+                Body.Add('contact_name', Customer.Contact);
+                Body.Add('telephone', Customer."Phone No.");
+                Body.Add('mobile_phone', Customer."Mobile Phone No.");
+                Body.Add('email_address', Customer."E-Mail");
+                Body.Add('fax_no', Customer."Fax No.");
 
-            bodyArray.Add(Body);
+                bodyArray.Add(Body);
+            end;
+
+            if GuiAllowed then
+                Window.Update(2, RecNo);
+
         until EntityCRM.Next() = 0;
+
+        if GuiAllowed then
+            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -331,27 +406,41 @@ codeunit 50070 "Integration CRM"
         bodyArray: JsonArray;
     begin
         Clear(requestBody);
-        EntityCRM.Reset();
-        EntityCRM.SetRange(Code, lblInvoice);
-        if EntityCRM.IsEmpty then exit;
+        RecNo := 0;
+        Recs := EntityCRM.Count;
 
         EntityCRM.FindSet();
+
+        if GuiAllowed then begin
+            Window.Open(StrSubstNo(txtDialog, SalesInvHeader.TableCaption) + txtProgressBar);
+            Window.Update(3, Recs);
+        end;
+
         repeat
-            SalesInvHeader.Get(EntityCRM.Key1);
-            Clear(Body);
+            RecNo += 1;
+            if SalesInvHeader.Get(EntityCRM.Key1) then begin
+                Clear(Body);
 
-            Body.Add('bcid', SalesInvHeader.SystemId);
-            Body.Add('invoice_number', SalesInvHeader."No.");
-            Body.Add('customer_id', SalesInvHeader."Sell-to Customer No.");
-            Body.Add('date_delivered', SalesInvHeader."Posting Date");
-            Body.Add('due_date', SalesInvHeader."Due Date");
-            Body.Add('sales_order_crm', SalesInvHeader."Order No.");
-            Body.Add('currency_id', SalesInvHeader."Currency Code");
-            Body.Add('shipment_date', SalesInvHeader."Shipment Date");
-            Body.Add('invoice_detail', GetInvoiceLine(SalesInvHeader."No."));
+                Body.Add('bcid', Format(SalesInvHeader.SystemId, 36, 4));
+                Body.Add('invoice_number', SalesInvHeader."No.");
+                Body.Add('customer_id', SalesInvHeader."Sell-to Customer No.");
+                Body.Add('date_delivered', Format(SalesInvHeader."Posting Date", 9));
+                Body.Add('due_date', Format(SalesInvHeader."Due Date", 9));
+                Body.Add('sales_order_no', SalesInvHeader."Order No.");
+                Body.Add('currency_id', SalesInvHeader."Currency Code");
+                Body.Add('shipment_date', Format(SalesInvHeader."Shipment Date", 9));
+                Body.Add('invoice_detail', GetInvoiceLine(SalesInvHeader."No."));
 
-            bodyArray.Add(Body);
+                bodyArray.Add(Body);
+            end;
+
+            if GuiAllowed then
+                Window.Update(2, RecNo);
+
         until EntityCRM.Next() = 0;
+
+        if GuiAllowed then
+            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -376,9 +465,9 @@ codeunit 50070 "Integration CRM"
                 locJsonObject.Add('price', boolTrue);
                 locJsonObject.Add('quantity', locSIL.Quantity);
                 locJsonObject.Add('discount_amount', locSIL."Line Discount Amount");
-                locJsonObject.Add('uom', locSIL."Unit of Measure Code");
+                locJsonObject.Add('uom_id', Format(GetUoMIdByCode(locSIL."Unit of Measure Code"), 36, 4));
                 locJsonObject.Add('price_perunit', locSIL."Unit Price");
-                locJsonObject.Add('id', locSIL.SystemId);
+                locJsonObject.Add('bcid', Format(locSIL.SystemId, 36, 4));
 
                 locJsonArray.Add(locJsonObject);
             until locSIL.Next() = 0;
@@ -401,10 +490,10 @@ codeunit 50070 "Integration CRM"
             if PackageHeader.FindFirst() then begin
                 Clear(Body);
 
-                Body.Add('bcid', PackageHeader.SystemId);
+                Body.Add('bcid', Format(PackageHeader.SystemId, 36, 4));
                 Body.Add('package_number', PackageHeader."No.");
-                Body.Add('sales_order_id', PackageHeader."Sales Order No.");
-                Body.Add('create_on', PackageHeader."Create Date");
+                Body.Add('sales_order_no', PackageHeader."Sales Order No.");
+                Body.Add('create_on', Format(PackageHeader."Create Date", 9));
                 Body.Add('status_code', Format(PackageHeader.Status));
                 Body.Add('boxes', GetBoxesByPackage(PackageHeader."No."));
 
@@ -426,14 +515,14 @@ codeunit 50070 "Integration CRM"
         repeat
             Clear(Body);
 
-            Body.Add('bcid', BoxHeader.SystemId);
+            Body.Add('bcid', Format(BoxHeader.SystemId, 36, 4));
             Body.Add('box_number', BoxHeader."No.");
-            Body.Add('create_on', BoxHeader."Create Date");
+            Body.Add('create_on', Format(BoxHeader."Create Date", 9));
             Body.Add('status_code', Format(BoxHeader.Status));
             Body.Add('external_document_no', BoxHeader."External Document No.");
             Body.Add('box_code', BoxHeader."Box Code");
             Body.Add('gross_weight', BoxHeader."Gross Weight");
-            Body.Add('uom_weight', Format(BoxHeader."Unit of Measure"));
+            Body.Add('uom_code', Format(BoxHeader."Unit of Measure"));
             Body.Add('tracking_no', BoxHeader."Tracking No.");
             Body.Add('shipping_agent_id', BoxHeader."Shipping Agent Code");
             Body.Add('shipping_agent_servise_id', BoxHeader."Shipping Services Code");
@@ -461,7 +550,7 @@ codeunit 50070 "Integration CRM"
         repeat
             Clear(Body);
 
-            Body.Add('bcid', BoxLine.SystemId);
+            Body.Add('bcid', Format(BoxLine.SystemId, 36, 4));
             Body.Add('line_number', BoxLine."Line No.");
             Body.Add('item_number', BoxLine."Item No.");
             Body.Add('quantity', BoxLine."Quantity in Box");
@@ -552,7 +641,7 @@ codeunit 50070 "Integration CRM"
         locEntityCRM.Insert(true);
     end;
 
-    local procedure EntityCRMOnUpdateIdBeforeSend(entityType: Text[30]; Key1: Code[20]; Key2: Code[20]; IdBC: Guid)
+    procedure EntityCRMOnUpdateIdBeforeSend(entityType: Text[30]; Key1: Code[20]; Key2: Code[20]; IdBC: Guid)
     var
         locEntityCRM: Record "Entity CRM";
     begin
@@ -576,8 +665,7 @@ codeunit 50070 "Integration CRM"
         if not CheckEnableIntegrationCRM() or (Key1 = '') then exit;
 
         locEntityCRM.Get(entityType, Key1, Key2);
-        if IsNullGuid(locEntityCRM."Id CRM") then
-            locEntityCRM."Id CRM" := idCRM;
+        locEntityCRM."Id CRM" := idCRM;
         locEntityCRM."Modify In CRM" := true;
         locEntityCRM.Modify(true);
     end;
@@ -592,7 +680,7 @@ codeunit 50070 "Integration CRM"
         exit(ShipStationSetup."CRM Integration Enable");
     end;
 
-    procedure Blob2TextFromRec(_TableId: Integer; _FieldNo: Integer): Text;
+    procedure Blob2TextFromRec(_TableId: Integer; _RecirdId: RecordId; _FieldNo: Integer): Text;
     var
         tmpTenantMedia: Record "Tenant Media" temporary;
         _FieldRef: FieldRef;
@@ -602,13 +690,15 @@ codeunit 50070 "Integration CRM"
         CR: Text[1];
     begin
         _RecordRef.Open(_TableId);
-        _FieldRef := _RecordRef.Field(_FieldNo);
-        _FieldRef.CalcField();
-        tmpTenantMedia.Content := _FieldRef.Value;
-        if tmpTenantMedia.Content.HasValue then begin
-            CR[1] := 10;
-            tmpTenantMedia.Content.CreateInStream(_InStream, TextEncoding::UTF8);
-            exit(TypeHelper.ReadAsTextWithSeparator(_InStream, CR));
+        if _RecordRef.Get(_RecirdId) then begin
+            _FieldRef := _RecordRef.Field(_FieldNo);
+            _FieldRef.CalcField();
+            tmpTenantMedia.Content := _FieldRef.Value;
+            if tmpTenantMedia.Content.HasValue then begin
+                CR[1] := 10;
+                tmpTenantMedia.Content.CreateInStream(_InStream, TextEncoding::UTF8);
+                exit(DelChr(TypeHelper.ReadAsTextWithSeparator(_InStream, CR), '=', '"'));
+            end;
         end;
 
         exit('');
@@ -719,4 +809,15 @@ codeunit 50070 "Integration CRM"
             Error('Could not find a token with path %1', Path);
     end;
 
+    procedure SaveStreamToFile(_streamText: Text; ToFileName: Variant)
+    var
+        tmpTenantMedia: Record "Tenant Media";
+        _inStream: inStream;
+        _outStream: outStream;
+    begin
+        tmpTenantMedia.Content.CreateOutStream(_OutStream, TextEncoding::UTF8);
+        _outStream.WriteText(_streamText);
+        tmpTenantMedia.Content.CreateInStream(_inStream, TextEncoding::UTF8);
+        DownloadFromStream(_inStream, 'Export', '', 'All Files (*.*)|*.*', ToFileName);
+    end;
 }

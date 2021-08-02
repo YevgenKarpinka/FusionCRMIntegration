@@ -1,7 +1,7 @@
 page 50073 "Integration CRM Log Card"
 {
     CaptionML = ENU = 'Integration CRM Log Card', RUS = 'Карточка интеграции CRM';
-    SourceTable = "Integration Log";
+    SourceTable = "Integration CRM Log";
     PageType = Card;
     RefreshOnActivate = true;
     InsertAllowed = false;
