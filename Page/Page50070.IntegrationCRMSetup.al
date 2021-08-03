@@ -36,6 +36,14 @@ page 50070 "Integration CRM Setup"
     {
         area(Processing)
         {
+            action(EntitySetup)
+            {
+                CaptionML = ENU = 'Entity Setup',
+                            RUS = 'Entity Setup';
+                ApplicationArea = All;
+                RunPageMode = View;
+                RunObject = Page "Entity Setup";
+            }
             action(IntegrationCRMLog)
             {
                 CaptionML = ENU = 'Integration CRM',
@@ -112,13 +120,37 @@ page 50070 "Integration CRM Setup"
                     Message(lblProcessCompleted);
                 end;
             }
+            action(SendAllInvoices)
+            {
+                CaptionML = ENU = 'Send All Invoices',
+                            RUS = 'Send All Invoices';
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    EntitySetup.Get(lblInvoice);
+                    glSIH.Reset();
+
+                    if glSIH.FindSet() then
+                        repeat
+                            if EntitySetup."Source CRM" then begin
+                                if not IsNullGuid(glSIH."CRM ID") then
+                                    IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblInvoice, glSIH."No.", '', glSIH.SystemId)
+                            end else
+                                IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblInvoice, glSIH."No.", '', glSIH.SystemId);
+                        until glSIH.Next() = 0;
+                    Message(lblProcessCompleted);
+                end;
+            }
         }
     }
 
     var
+        EntitySetup: Record "Entity Setup";
         glUoM: Record "Unit of Measure";
         glItem: Record Item;
         glCustomer: Record Customer;
+        glSIH: Record "Sales Invoice Header";
         IntegrationCRM: Codeunit "Integration CRM";
         lblUoM: Label 'UOM';
         lblItem: Label 'ITEM';
@@ -126,4 +158,5 @@ page 50070 "Integration CRM Setup"
         lblInvoice: Label 'INVOICE';
         lblPackage: Label 'PACKAGE';
         lblProcessCompleted: Label 'Process Completed';
+        blankGuid: Guid;
 }

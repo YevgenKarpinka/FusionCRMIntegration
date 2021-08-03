@@ -24,6 +24,12 @@ table 50073 "Entity Setup"
             CaptionML = ENU = 'Description',
                         RUS = 'Описание';
         }
+        field(4; "Source CRM"; Boolean)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'Source CRM',
+                        RUS = 'Источник CRM';
+        }
     }
 
     keys

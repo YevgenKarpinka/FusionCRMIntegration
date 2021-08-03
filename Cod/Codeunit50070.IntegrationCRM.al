@@ -36,8 +36,7 @@ codeunit 50070 "Integration CRM"
         Recs: Integer;
         RecNo: Integer;
         blankGuid: Guid;
-
-
+        boolTrue: Boolean;
 
     local procedure Execute()
     var
@@ -48,6 +47,7 @@ codeunit 50070 "Integration CRM"
         EntityCRM.SetRange("Modify In CRM", false);
         if EntityCRM.IsEmpty then exit;
 
+        EntitySetup.SetCurrentKey(Rank);
         if EntitySetup.FindSet() then
             repeat
                 EntityCRM.SetRange(Code, EntitySetup.Code);
@@ -186,7 +186,7 @@ codeunit 50070 "Integration CRM"
             if UoM.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
-                Body.Add('bcid', Format(UoM.SystemId, 36, 4));
+                Body.Add('bcid', Guid2APIStr(UoM.SystemId));
                 Body.Add('name', UoM.Code);
                 Body.Add('description', UoM.Description);
 
@@ -224,7 +224,7 @@ codeunit 50070 "Integration CRM"
             if Item.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
-                Body.Add('bcid', Format(Item.SystemId, 36, 4));
+                Body.Add('bcid', Guid2APIStr(Item.SystemId));
                 Body.Add('item_number', Item."No.");
                 if ItemDescr.Get(Item."No.") then begin
                     Body.Add('name_eng', ItemDescr."Name ENG");
@@ -243,7 +243,7 @@ codeunit 50070 "Integration CRM"
                     Body.Add('directions', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Directions)));
                 end;
                 Body.Add('price', Item."Unit Price");
-                Body.Add('baseuom', Format(GetUoMIdByCode(Item."Base Unit of Measure"), 36, 4));
+                Body.Add('baseuom', Guid2APIStr(GetUoMIdByCode(Item."Base Unit of Measure")));
                 Body.Add('promotional_price', GetPromotionalPrice(Item."No."));
                 Body.Add('productuom', GetItemUoM(Item."No."));
 
@@ -302,8 +302,8 @@ codeunit 50070 "Integration CRM"
                 Clear(locJsonObject);
                 locUoM.Get(locItemUoM.Code);
 
-                locJsonObject.Add('uom_id', Format(GetUoMIdByCode(locUoM.Code), 36, 4));
-                locJsonObject.Add('bcid', Format(locItemUoM.SystemId, 36, 4));
+                locJsonObject.Add('uom_id', Guid2APIStr(GetUoMIdByCode(locUoM.Code)));
+                locJsonObject.Add('bcid', Guid2APIStr(locItemUoM.SystemId));
                 locJsonObject.Add('qty_per_unit_of_measure', locItemUoM."Qty. per Unit of Measure");
                 locJsonObject.Add('unit_price', GetUnitPriceByItemUoM(ItemNo, locItemUoM."Qty. per Unit of Measure"));
                 locJsonObject.Add('promotional_price', GetPromotionalPrice(ItemNo));
@@ -342,7 +342,7 @@ codeunit 50070 "Integration CRM"
                 Customer.CalcFields(Balance, "Balance Due");
                 Clear(Body);
 
-                Body.Add('bcid', Format(Customer.SystemId, 36, 4));
+                Body.Add('bcid', Guid2APIStr(Customer.SystemId));
                 Body.Add('bc_number', Customer."No.");
                 Body.Add('name', Customer.Name + Customer."Name 2");
                 Body.Add('balance', Customer.Balance);
@@ -421,14 +421,14 @@ codeunit 50070 "Integration CRM"
             if SalesInvHeader.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
-                Body.Add('bcid', Format(SalesInvHeader.SystemId, 36, 4));
+                Body.Add('bcid', Guid2APIStr(SalesInvHeader.SystemId));
                 Body.Add('invoice_number', SalesInvHeader."No.");
                 Body.Add('customer_id', SalesInvHeader."Sell-to Customer No.");
-                Body.Add('date_delivered', Format(SalesInvHeader."Posting Date", 9));
-                Body.Add('due_date', Format(SalesInvHeader."Due Date", 9));
+                Body.Add('date_delivered', Date2APIStr(SalesInvHeader."Posting Date"));
+                Body.Add('due_date', Date2APIStr(SalesInvHeader."Due Date"));
                 Body.Add('sales_order_no', SalesInvHeader."Order No.");
                 Body.Add('currency_id', SalesInvHeader."Currency Code");
-                Body.Add('shipment_date', Format(SalesInvHeader."Shipment Date", 9));
+                Body.Add('shipment_date', Date2APIStr(SalesInvHeader."Shipment Date"));
                 Body.Add('invoice_detail', GetInvoiceLine(SalesInvHeader."No."));
 
                 bodyArray.Add(Body);
@@ -450,7 +450,6 @@ codeunit 50070 "Integration CRM"
         locSIL: Record "Sales Invoice Line";
         locJsonObject: JsonObject;
         locJsonArray: JsonArray;
-        boolTrue: Boolean;
     begin
         boolTrue := true;
 
@@ -465,9 +464,9 @@ codeunit 50070 "Integration CRM"
                 locJsonObject.Add('price', boolTrue);
                 locJsonObject.Add('quantity', locSIL.Quantity);
                 locJsonObject.Add('discount_amount', locSIL."Line Discount Amount");
-                locJsonObject.Add('uom_id', Format(GetUoMIdByCode(locSIL."Unit of Measure Code"), 36, 4));
+                locJsonObject.Add('uom_id', Guid2APIStr(GetUoMIdByCode(locSIL."Unit of Measure Code")));
                 locJsonObject.Add('price_perunit', locSIL."Unit Price");
-                locJsonObject.Add('bcid', Format(locSIL.SystemId, 36, 4));
+                locJsonObject.Add('bcid', Guid2APIStr(locSIL.SystemId));
 
                 locJsonArray.Add(locJsonObject);
             until locSIL.Next() = 0;
@@ -490,10 +489,10 @@ codeunit 50070 "Integration CRM"
             if PackageHeader.FindFirst() then begin
                 Clear(Body);
 
-                Body.Add('bcid', Format(PackageHeader.SystemId, 36, 4));
+                Body.Add('bcid', Guid2APIStr(PackageHeader.SystemId));
                 Body.Add('package_number', PackageHeader."No.");
                 Body.Add('sales_order_no', PackageHeader."Sales Order No.");
-                Body.Add('create_on', Format(PackageHeader."Create Date", 9));
+                Body.Add('create_on', DateTime2APIStr(PackageHeader."Create Date"));
                 Body.Add('status_code', Format(PackageHeader.Status));
                 Body.Add('boxes', GetBoxesByPackage(PackageHeader."No."));
 
@@ -515,9 +514,9 @@ codeunit 50070 "Integration CRM"
         repeat
             Clear(Body);
 
-            Body.Add('bcid', Format(BoxHeader.SystemId, 36, 4));
+            Body.Add('bcid', Guid2APIStr(BoxHeader.SystemId));
             Body.Add('box_number', BoxHeader."No.");
-            Body.Add('create_on', Format(BoxHeader."Create Date", 9));
+            Body.Add('create_on', DateTime2APIStr(BoxHeader."Create Date"));
             Body.Add('status_code', Format(BoxHeader.Status));
             Body.Add('external_document_no', BoxHeader."External Document No.");
             Body.Add('box_code', BoxHeader."Box Code");
@@ -550,7 +549,7 @@ codeunit 50070 "Integration CRM"
         repeat
             Clear(Body);
 
-            Body.Add('bcid', Format(BoxLine.SystemId, 36, 4));
+            Body.Add('bcid', Guid2APIStr(BoxLine.SystemId));
             Body.Add('line_number', BoxLine."Line No.");
             Body.Add('item_number', BoxLine."Item No.");
             Body.Add('quantity', BoxLine."Quantity in Box");
@@ -819,5 +818,20 @@ codeunit 50070 "Integration CRM"
         _outStream.WriteText(_streamText);
         tmpTenantMedia.Content.CreateInStream(_inStream, TextEncoding::UTF8);
         DownloadFromStream(_inStream, 'Export', '', 'All Files (*.*)|*.*', ToFileName);
+    end;
+
+    procedure Guid2APIStr(_Guid: Guid): Text
+    begin
+        exit(Format(_Guid, 36, 4));
+    end;
+
+    procedure Date2APIStr(_Date: Date): Text
+    begin
+        exit(Format(_Date, 10, 9));
+    end;
+
+    procedure DateTime2APIStr(_Date: DateTime): Text
+    begin
+        exit(Format(_Date, 24, 9));
     end;
 }

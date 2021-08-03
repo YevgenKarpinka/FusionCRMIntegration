@@ -28,23 +28,29 @@ page 50074 "Entity Setup"
                     ApplicationArea = All;
 
                 }
+                field("Source CRM"; Rec."Source CRM")
+                {
+                    ApplicationArea = All;
+
+                }
+
             }
         }
     }
 
     actions
     {
-        area(Processing)
-        {
-            action(EntityCRM)
-            {
-                CaptionML = ENU = 'Entity CRM',
-                            RUS = 'Сущности CRM';
-                ApplicationArea = All;
-                RunObject = Page "Entity CRM List";
-                RunPageMode = View;
-            }
-        }
+        // area(Processing)
+        // {
+        //     action(EntityCRM)
+        //     {
+        //         CaptionML = ENU = 'Entity CRM',
+        //                     RUS = 'Сущности CRM';
+        //         ApplicationArea = All;
+        //         RunObject = Page "Entity CRM List";
+        //         RunPageMode = View;
+        //     }
+        // }
     }
 
 }

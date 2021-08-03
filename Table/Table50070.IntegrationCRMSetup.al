@@ -11,6 +11,7 @@ table 50070 "Integration CRM Setup"
             DataClassification = CustomerContent;
             CaptionML = ENU = 'Code',
                         RUS = 'Код';
+            TableRelation = "Entity Setup";
         }
         field(2; URL; Text[200])
         {
