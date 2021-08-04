@@ -33,6 +33,11 @@ page 50074 "Entity Setup"
                     ApplicationArea = All;
 
                 }
+                field("Request To File"; Rec."Request To File")
+                {
+                    ApplicationArea = All;
+
+                }
 
             }
         }

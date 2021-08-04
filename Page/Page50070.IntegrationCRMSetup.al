@@ -80,11 +80,7 @@ page 50070 "Integration CRM Setup"
 
                 trigger OnAction()
                 begin
-                    glUoM.Reset();
-                    if glUoM.FindSet() then
-                        repeat
-                            IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblUoM, glUoM.Code, '', glUoM.SystemId);
-                        until glUoM.Next() = 0;
+                    IntegrationCRM.PostAllUoM();
                     Message(lblProcessCompleted);
                 end;
             }
@@ -96,11 +92,7 @@ page 50070 "Integration CRM Setup"
 
                 trigger OnAction()
                 begin
-                    glItem.Reset();
-                    if glItem.FindSet() then
-                        repeat
-                            IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblItem, glItem."No.", '', glItem.SystemId);
-                        until glItem.Next() = 0;
+                    IntegrationCRM.PostAllItems();
                     Message(lblProcessCompleted);
                 end;
             }
@@ -112,11 +104,7 @@ page 50070 "Integration CRM Setup"
 
                 trigger OnAction()
                 begin
-                    glCustomer.Reset();
-                    if glCustomer.FindSet() then
-                        repeat
-                            IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblCustomer, glCustomer."No.", '', glCustomer.SystemId);
-                        until glCustomer.Next() = 0;
+                    IntegrationCRM.PostAllCustomers();
                     Message(lblProcessCompleted);
                 end;
             }
@@ -128,17 +116,31 @@ page 50070 "Integration CRM Setup"
 
                 trigger OnAction()
                 begin
-                    EntitySetup.Get(lblInvoice);
-                    glSIH.Reset();
+                    IntegrationCRM.PostAllInvoices();
+                    Message(lblProcessCompleted);
+                end;
+            }
+            action(SendAllPackages)
+            {
+                CaptionML = ENU = 'Send All Packages',
+                            RUS = 'Send All Packages';
+                ApplicationArea = All;
 
-                    if glSIH.FindSet() then
-                        repeat
-                            if EntitySetup."Source CRM" then begin
-                                if not IsNullGuid(glSIH."CRM ID") then
-                                    IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblInvoice, glSIH."No.", '', glSIH.SystemId)
-                            end else
-                                IntegrationCRM.EntityCRMOnUpdateIdBeforeSend(lblInvoice, glSIH."No.", '', glSIH.SystemId);
-                        until glSIH.Next() = 0;
+                trigger OnAction()
+                begin
+                    IntegrationCRM.PostAllPackages();
+                    Message(lblProcessCompleted);
+                end;
+            }
+            action(SendAllEntities)
+            {
+                CaptionML = ENU = 'Send All Entities',
+                            RUS = 'Send All Entities';
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    IntegrationCRM.PostAllEntities();
                     Message(lblProcessCompleted);
                 end;
             }
@@ -146,17 +148,6 @@ page 50070 "Integration CRM Setup"
     }
 
     var
-        EntitySetup: Record "Entity Setup";
-        glUoM: Record "Unit of Measure";
-        glItem: Record Item;
-        glCustomer: Record Customer;
-        glSIH: Record "Sales Invoice Header";
         IntegrationCRM: Codeunit "Integration CRM";
-        lblUoM: Label 'UOM';
-        lblItem: Label 'ITEM';
-        lblCustomer: Label 'CUSTOMER';
-        lblInvoice: Label 'INVOICE';
-        lblPackage: Label 'PACKAGE';
         lblProcessCompleted: Label 'Process Completed';
-        blankGuid: Guid;
 }

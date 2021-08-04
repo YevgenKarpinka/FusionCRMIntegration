@@ -2,7 +2,7 @@ codeunit 50070 "Integration CRM"
 {
     trigger OnRun()
     begin
-        Execute();
+        Code();
     end;
 
     var
@@ -17,13 +17,10 @@ codeunit 50070 "Integration CRM"
         PackageHeader: Record "Package Header";
         BoxHeader: Record "Box Header";
         BoxLine: Record "Box Line";
-        ItemUoM: Record "Item Unit of Measure";
         UoM: Record "Unit of Measure";
         CustomerMgt: Codeunit "Customer Mgt.";
         IntegrationCRMLog: Record "Integration CRM Log";
-        PackageBoxMgt: Codeunit "Package Box Mgt.";
         requestMethodPOST: Label 'POST';
-        requestURL: Text;
         Body: JsonObject;
         lblUoM: Label 'UOM';
         lblItem: Label 'ITEM';
@@ -31,14 +28,15 @@ codeunit 50070 "Integration CRM"
         lblInvoice: Label 'INVOICE';
         lblPackage: Label 'PACKAGE';
         lblSubStrURL: Label '%1%2';
+        lblFileName: Label 'RequestBody_%1.txt';
         txtDialog: TextConst ENU = 'Create Request By %1\', RUS = 'Create Request By %1\';
-        txtProgressBar: TextConst ENU = 'Rec No #2 From #3', RUS = 'Rec No #2 From #3';
+        txtProgressBar: TextConst ENU = 'Send Records Count #2 Remaining Records #3', RUS = 'Send Records Count #2 Remaining Records #3';
         Recs: Integer;
         RecNo: Integer;
         blankGuid: Guid;
         boolTrue: Boolean;
 
-    local procedure Execute()
+    local procedure Code()
     var
         EntitySetup: Record "Entity Setup";
     begin
@@ -50,6 +48,7 @@ codeunit 50070 "Integration CRM"
         EntitySetup.SetCurrentKey(Rank);
         if EntitySetup.FindSet() then
             repeat
+                EntityCRM.Reset();
                 EntityCRM.SetRange(Code, EntitySetup.Code);
                 EntityCRM.SetRange("Modify In CRM", false);
                 if EntityCRM.FindSet() then
@@ -110,6 +109,7 @@ codeunit 50070 "Integration CRM"
         responseBody: Text;
     begin
         repeat
+            InitRequestBodyForPost(entityType, requestBody);
             // create requestBody
             case entityType of
                 lblUoM:
@@ -124,17 +124,39 @@ codeunit 50070 "Integration CRM"
                     CreateRequestBodyForPostPackage(requestBody);
             end;
 
-            // while testing
-            // if true then begin
-            // SaveStreamToFile(requestBody, 'requestBody.txt');
-            // exit;
-            // end else begin
-            GetEntity(entityType, requestMethodPOST, requestBody, responseBody);
-            UpdateEntityIDAndStatus(entityType, responseBody);
-        // end;
+            if isSaveRequestBodyToFile(entityType) then begin
+                // while testing
+                SaveStreamToFile(requestBody, StrSubstNo(lblFileName, entityType));
+                exit;
+            end else begin
+                GetEntity(entityType, requestMethodPOST, requestBody, responseBody);
+                UpdateEntityIDAndStatus(entityType, responseBody);
+            end;
         until EntityCRM.IsEmpty;
 
         exit(false);
+    end;
+
+    local procedure InitRequestBodyForPost(entityType: Code[30]; var requestBody: Text)
+    begin
+        Clear(requestBody);
+        RecNo := 0;
+        Recs := EntityCRM.Count;
+
+        EntityCRM.FindSet();
+
+        if GuiAllowed then begin
+            Window.Open(StrSubstNo(txtDialog, entityType) + txtProgressBar);
+            Window.Update(3, Recs);
+        end;
+    end;
+
+    local procedure isSaveRequestBodyToFile(entityType: Code[30]): Boolean
+    var
+        locEntitySetup: Record "Entity Setup";
+    begin
+        locEntitySetup.Get(entityType);
+        exit(locEntitySetup."Request To File");
     end;
 
     local procedure UpdateEntityIDAndStatus(entityType: Code[30]; responseBody: Text);
@@ -169,18 +191,6 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
     begin
-        Clear(Body);
-        Clear(requestBody);
-        RecNo := 0;
-        Recs := EntityCRM.Count;
-
-        EntityCRM.FindSet();
-
-        if GuiAllowed then begin
-            Window.Open(StrSubstNo(txtDialog, UoM.TableCaption) + txtProgressBar);
-            Window.Update(3, Recs);
-        end;
-
         repeat
             RecNo += 1;
             if UoM.Get(EntityCRM.Key1) then begin
@@ -191,11 +201,10 @@ codeunit 50070 "Integration CRM"
                 Body.Add('description', UoM.Description);
 
                 bodyArray.Add(Body);
-
-                if GuiAllowed then
-                    Window.Update(2, RecNo);
             end;
-        until EntityCRM.Next() = 0;
+
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
 
         if GuiAllowed then
             Window.Close();
@@ -207,18 +216,6 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
     begin
-        Clear(Body);
-        Clear(requestBody);
-        RecNo := 0;
-        Recs := EntityCRM.Count;
-
-        EntityCRM.FindSet();
-
-        if GuiAllowed then begin
-            Window.Open(StrSubstNo(txtDialog, Item.TableCaption) + txtProgressBar);
-            Window.Update(3, Recs);
-        end;
-
         repeat
             RecNo += 1;
             if Item.Get(EntityCRM.Key1) then begin
@@ -226,6 +223,7 @@ codeunit 50070 "Integration CRM"
 
                 Body.Add('bcid', Guid2APIStr(Item.SystemId));
                 Body.Add('item_number', Item."No.");
+                Body.Add('description', Item.Description + Item."Description 2");
                 if ItemDescr.Get(Item."No.") then begin
                     Body.Add('name_eng', ItemDescr."Name ENG");
                     Body.Add('name_eng_2', ItemDescr."Name ENG 2");
@@ -237,37 +235,43 @@ codeunit 50070 "Integration CRM"
                     Body.Add('directions_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Directions RU")));
                     Body.Add('warning', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Warning)));
                     Body.Add('legal_disclaimer', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Legal Disclaimer")));
-                    Body.Add('description', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Description)));
+                    Body.Add('description_eng', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Description)));
                     Body.Add('ingredients', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Ingredients)));
                     Body.Add('indications', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Indications)));
                     Body.Add('directions', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Directions)));
                 end;
-                Body.Add('price', Item."Unit Price");
+                Body.Add('blocked', Item.Blocked or Item."Sales Blocked");
+                Body.Add('blocked_reason', Item."Block Reason");
                 Body.Add('baseuom', Guid2APIStr(GetUoMIdByCode(Item."Base Unit of Measure")));
+                Body.Add('price', Item."Unit Price");
                 Body.Add('promotional_price', GetPromotionalPrice(Item."No."));
                 Body.Add('productuom', GetItemUoM(Item."No."));
 
                 bodyArray.Add(Body);
-
-                if GuiAllowed then
-                    Window.Update(2, RecNo);
             end;
 
-            if RecNo < 100 then
-                EntityCRM.Next();
-
-            if (RecNo = 100) then
-                EntityCRM.SetFilter(Key1, '%1..', EntityCRM.Key1)
-            else
-                if (Recs = RecNo) then
-                    EntityCRM.SetFilter(Key1, '%1..', IncStr(EntityCRM.Key1));
-
+            AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
 
         if GuiAllowed then
             Window.Close();
 
         bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure AfterAddEntityToRequestBody()
+    begin
+        if GuiAllowed then
+            Window.Update(2, RecNo);
+
+        if RecNo < 100 then
+            EntityCRM.Next();
+
+        if (RecNo = 100) then
+            EntityCRM.SetFilter(Key1, '%1..', EntityCRM.Key1)
+        else
+            if (Recs = RecNo) then
+                EntityCRM.SetFilter(Key1, '%1..', IncStr(EntityCRM.Key1));
     end;
 
     local procedure GetUoMIdByCode(UoMCode: Code[10]): Guid
@@ -325,17 +329,6 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
     begin
-        Clear(requestBody);
-        RecNo := 0;
-        Recs := EntityCRM.Count;
-
-        EntityCRM.FindSet();
-
-        if GuiAllowed then begin
-            Window.Open(StrSubstNo(txtDialog, Customer.TableCaption) + txtProgressBar);
-            Window.Update(3, Recs);
-        end;
-
         repeat
             RecNo += 1;
             if Customer.Get(EntityCRM.Key1) then begin
@@ -363,10 +356,8 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            if GuiAllowed then
-                Window.Update(2, RecNo);
-
-        until EntityCRM.Next() = 0;
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
 
         if GuiAllowed then
             Window.Close();
@@ -405,17 +396,6 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
     begin
-        Clear(requestBody);
-        RecNo := 0;
-        Recs := EntityCRM.Count;
-
-        EntityCRM.FindSet();
-
-        if GuiAllowed then begin
-            Window.Open(StrSubstNo(txtDialog, SalesInvHeader.TableCaption) + txtProgressBar);
-            Window.Update(3, Recs);
-        end;
-
         repeat
             RecNo += 1;
             if SalesInvHeader.Get(EntityCRM.Key1) then begin
@@ -434,10 +414,8 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            if GuiAllowed then
-                Window.Update(2, RecNo);
-
-        until EntityCRM.Next() = 0;
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
 
         if GuiAllowed then
             Window.Close();
@@ -478,15 +456,9 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
     begin
-        Clear(requestBody);
-        PackageHeader.Reset();
-        EntityCRM.Reset();
-
-        EntityCRM.SetRange(Code, lblPackage);
-        if not EntityCRM.FindSet() then exit;
         repeat
-            PackageHeader.SetRange("No.", EntityCRM.Key1);
-            if PackageHeader.FindFirst() then begin
+            RecNo += 1;
+            if PackageHeader.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
                 Body.Add('bcid', Guid2APIStr(PackageHeader.SystemId));
@@ -498,66 +470,72 @@ codeunit 50070 "Integration CRM"
 
                 bodyArray.Add(Body);
             end;
-        until EntityCRM.Next() = 0;
+
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
+
+        if GuiAllowed then
+            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
 
     local procedure GetBoxesByPackage(PackageNo: Code[20]): JsonArray
     var
-        bodyArray: JsonArray;
+        locJsonObject: JsonObject;
+        locJsonArray: JsonArray;
     begin
         BoxHeader.Reset();
-
         BoxHeader.SetRange("Package No.", PackageNo);
         if not BoxHeader.FindSet() then exit;
+
         repeat
-            Clear(Body);
+            Clear(locJsonObject);
 
-            Body.Add('bcid', Guid2APIStr(BoxHeader.SystemId));
-            Body.Add('box_number', BoxHeader."No.");
-            Body.Add('create_on', DateTime2APIStr(BoxHeader."Create Date"));
-            Body.Add('status_code', Format(BoxHeader.Status));
-            Body.Add('external_document_no', BoxHeader."External Document No.");
-            Body.Add('box_code', BoxHeader."Box Code");
-            Body.Add('gross_weight', BoxHeader."Gross Weight");
-            Body.Add('uom_code', Format(BoxHeader."Unit of Measure"));
-            Body.Add('tracking_no', BoxHeader."Tracking No.");
-            Body.Add('shipping_agent_id', BoxHeader."Shipping Agent Code");
-            Body.Add('shipping_agent_servise_id', BoxHeader."Shipping Services Code");
-            Body.Add('shipstation_statuscode', BoxHeader."ShipStation Status");
-            Body.Add('shipstation_shipment_id', BoxHeader."ShipStation Shipment ID");
-            Body.Add('shipstation_order_id', BoxHeader."ShipStation Order ID");
-            Body.Add('shipstation_order_key', BoxHeader."ShipStation Order Key");
-            Body.Add('boxes_line', GetBoxesLineByBox(BoxHeader."No."));
+            locJsonObject.Add('bcid', Guid2APIStr(BoxHeader.SystemId));
+            locJsonObject.Add('box_number', BoxHeader."No.");
+            locJsonObject.Add('create_on', DateTime2APIStr(BoxHeader."Create Date"));
+            locJsonObject.Add('status_code', Format(BoxHeader.Status));
+            locJsonObject.Add('external_document_no', BoxHeader."External Document No.");
+            locJsonObject.Add('box_code', BoxHeader."Box Code");
+            locJsonObject.Add('gross_weight', BoxHeader."Gross Weight");
+            locJsonObject.Add('uom_code', Format(BoxHeader."Unit of Measure"));
+            locJsonObject.Add('tracking_no', BoxHeader."Tracking No.");
+            locJsonObject.Add('shipping_agent_id', BoxHeader."Shipping Agent Code");
+            locJsonObject.Add('shipping_agent_servise_id', BoxHeader."Shipping Services Code");
+            locJsonObject.Add('shipstation_statuscode', BoxHeader."ShipStation Status");
+            locJsonObject.Add('shipstation_shipment_id', BoxHeader."ShipStation Shipment ID");
+            locJsonObject.Add('shipstation_order_id', BoxHeader."ShipStation Order ID");
+            locJsonObject.Add('shipstation_order_key', BoxHeader."ShipStation Order Key");
+            locJsonObject.Add('boxes_line', GetBoxesLineByBox(BoxHeader."No."));
 
-            bodyArray.Add(Body);
+            locJsonArray.Add(locJsonObject);
         until BoxHeader.Next() = 0;
 
-        exit(bodyArray);
+        exit(locJsonArray);
     end;
 
     local procedure GetBoxesLineByBox(BoxNo: Code[20]): JsonArray
     var
-        bodyArray: JsonArray;
+        locJsonObject: JsonObject;
+        locJsonArray: JsonArray;
     begin
-        Clear(Body);
         BoxLine.Reset();
-
         BoxLine.SetRange("Box No.", BoxNo);
-        if BoxLine.IsEmpty then exit;
+        if not BoxLine.FindSet() then exit;
+
         repeat
-            Clear(Body);
+            Clear(locJsonObject);
 
-            Body.Add('bcid', Guid2APIStr(BoxLine.SystemId));
-            Body.Add('line_number', BoxLine."Line No.");
-            Body.Add('item_number', BoxLine."Item No.");
-            Body.Add('quantity', BoxLine."Quantity in Box");
+            locJsonObject.Add('bcid', Guid2APIStr(BoxLine.SystemId));
+            locJsonObject.Add('line_number', BoxLine."Line No.");
+            locJsonObject.Add('item_number', BoxLine."Item No.");
+            locJsonObject.Add('quantity', BoxLine."Quantity in Box");
 
-            bodyArray.Add(Body);
+            locJsonArray.Add(locJsonObject);
         until BoxLine.Next() = 0;
 
-        exit(bodyArray);
+        exit(locJsonArray);
     end;
 
     [EventSubscriber(ObjectType::Table, 204, 'OnAfterInsertEvent', '', false, false)]
@@ -599,14 +577,14 @@ codeunit 50070 "Integration CRM"
     [EventSubscriber(ObjectType::Table, 112, 'OnAfterInsertEvent', '', false, false)]
     local procedure SalesInvOnAfterInsertEvent(var Rec: Record "Sales Invoice Header")
     begin
-        if not IsNullGuid(Rec."CRM ID") then
+        if SalesOrderFromCRM(Rec."Order No.") then
             EntityCRMOnUpdateIdBeforeSend(lblInvoice, Rec."No.", '', Rec.SystemId);
     end;
 
     [EventSubscriber(ObjectType::Table, 112, 'OnAfterModifyEvent', '', false, false)]
     local procedure SalesInvOnAfterModifyEvent(var Rec: Record "Sales Invoice Header")
     begin
-        if not IsNullGuid(Rec."CRM ID") then
+        if SalesOrderFromCRM(Rec."Order No.") then
             EntityCRMOnUpdateIdBeforeSend(lblInvoice, Rec."No.", '', Rec.SystemId);
     end;
 
@@ -614,14 +592,10 @@ codeunit 50070 "Integration CRM"
     local procedure PackageOnAfterInsertEvent(PackageNo: Code[20])
     var
         locPackageHeader: Record "Package Header";
-        locSIH: Record "Sales Invoice Header";
     begin
-        if locPackageHeader.Get(PackageNo) then begin
-            locSIH.SetCurrentKey("Order No.");
-            locSIH.SetRange("Order No.", locPackageHeader."Sales Order No.");
-            if locSIH.FindFirst() and not IsNullGuid(locSIH."CRM ID") then
-                EntityCRMOnUpdateIdBeforeSend(lblPackage, PackageNo, '', locPackageHeader.SystemId);
-        end;
+        if locPackageHeader.Get(PackageNo)
+        and SalesOrderFromCRM(locPackageHeader."Sales Order No.") then
+            EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
     end;
 
     local procedure InsertEntityCRM(entityType: Text[30]; Key1: Code[20]; Key2: Code[20]; IdBC: Guid)
@@ -712,77 +686,77 @@ codeunit 50070 "Integration CRM"
         PostAllCustomers();
         PostAllInvoices();
         PostAllPackages();
-        OnUpdateEntityByType('', false);
     end;
 
-    local procedure PostAllUoM()
-    var
-        locEntityCRM: Record "Entity CRM";
+    procedure PostAllUoM()
     begin
         UoM.Reset();
         if UoM.FindSet() then
             repeat
-                if not locEntityCRM.Get(lblUoM, UoM.Code, '') then
-                    InsertEntityCRM(lblUoM, UoM.Code, '', UoM.SystemId);
+                EntityCRMOnUpdateIdBeforeSend(lblUoM, UoM.Code, '', UoM.SystemId);
             until UoM.Next() = 0;
     end;
 
-    local procedure PostAllItems()
-    var
-        locEntityCRM: Record "Entity CRM";
+    procedure PostAllItems()
     begin
         Item.Reset();
         if Item.FindSet() then
             repeat
-                if not locEntityCRM.Get(lblItem, Item."No.", '') then
-                    InsertEntityCRM(lblItem, Item."No.", '', Item.SystemId);
+                EntityCRMOnUpdateIdBeforeSend(lblItem, Item."No.", '', Item.SystemId);
             until Item.Next() = 0;
     end;
 
-    local procedure PostAllCustomers()
+    procedure PostAllCustomers()
     var
         locEntityCRM: Record "Entity CRM";
     begin
         Customer.Reset();
         if Customer.FindSet() then
             repeat
-                if not locEntityCRM.Get(lblCustomer, Customer."No.", '') then
-                    InsertEntityCRM(lblCustomer, Customer."No.", '', Customer.SystemId);
+                EntityCRMOnUpdateIdBeforeSend(lblCustomer, Customer."No.", '', Customer.SystemId);
             until Customer.Next() = 0;
     end;
 
-    local procedure PostAllInvoices()
-    var
-        locEntityCRM: Record "Entity CRM";
+    procedure PostAllInvoices()
     begin
         SalesInvHeader.Reset();
-        SalesInvHeader.SetCurrentKey("CRM ID");
-        SalesInvHeader.SetFilter("CRM ID", '<>%1', blankGuid);
         if SalesInvHeader.FindSet() then
             repeat
-                if not locEntityCRM.Get(lblInvoice, SalesInvHeader."No.", '') then
-                    InsertEntityCRM(lblInvoice, SalesInvHeader."No.", '', SalesInvHeader.SystemId);
+                if SalesOrderFromCRM(SalesInvHeader."Order No.") then
+                    EntityCRMOnUpdateIdBeforeSend(lblInvoice, SalesInvHeader."No.", '', SalesInvHeader.SystemId)
             until SalesInvHeader.Next() = 0;
     end;
 
-    local procedure PostAllPackages()
+    procedure PostAllPackages()
     var
-        locEntityCRM: Record "Entity CRM";
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblPackage);
         PackageHeader.Reset();
+
         if PackageHeader.FindSet() then
             repeat
-                if SalesOrderFromCRM(PackageHeader."Sales Order No.")
-                and not locEntityCRM.Get(lblPackage, PackageHeader."No.", '') then
-                    InsertEntityCRM(lblPackage, PackageHeader."No.", '', PackageHeader.SystemId);
+                if EntitySetup."Source CRM" then begin
+                    SalesInvHeader.Reset();
+                    SalesInvHeader.SetCurrentKey("Order No.");
+                    SalesInvHeader.SetRange("Order No.", PackageHeader."Sales Order No.");
+                    if SalesInvHeader.FindFirst() and SalesOrderFromCRM(SalesInvHeader."Order No.") then
+                        EntityCRMOnUpdateIdBeforeSend(lblPackage, PackageHeader."No.", '', PackageHeader.SystemId)
+                end else
+                    EntityCRMOnUpdateIdBeforeSend(lblPackage, PackageHeader."No.", '', PackageHeader.SystemId);
             until PackageHeader.Next() = 0;
     end;
 
     local procedure SalesOrderFromCRM(OrderNo: Code[20]): Boolean
     var
+        EntitySetup: Record "Entity Setup";
         locSH: Record "Sales Header";
         locSIH: Record "Sales Invoice Header";
     begin
+        EntitySetup.Get(lblInvoice);
+        if not EntitySetup."Source CRM" then
+            exit(true);
+
         if locSH.Get(locSH."Document Type"::Order, OrderNo)
         and not IsNullGuid(locSH."CRM ID") then
             exit(true);

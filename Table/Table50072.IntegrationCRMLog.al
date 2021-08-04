@@ -135,9 +135,6 @@ table 50072 "Integration CRM Log"
     var
         LastEntryNo: Integer;
         isError: Boolean;
-        // Key1: Code[20];
-        // idCRM: Guid;
-        // idBC: Guid;
         jaResponse: JsonArray;
         jtResponse: JsonToken;
         jaRequest: JsonArray;
