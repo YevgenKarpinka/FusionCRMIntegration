@@ -499,10 +499,10 @@ codeunit 50070 "Integration CRM"
             locJsonObject.Add('external_document_no', BoxHeader."External Document No.");
             locJsonObject.Add('box_code', BoxHeader."Box Code");
             locJsonObject.Add('gross_weight', BoxHeader."Gross Weight");
-            locJsonObject.Add('uom_code', Format(BoxHeader."Unit of Measure"));
+            locJsonObject.Add('uom_weight', Format(BoxHeader."Unit of Measure"));
             locJsonObject.Add('tracking_no', BoxHeader."Tracking No.");
             locJsonObject.Add('shipping_agent_id', BoxHeader."Shipping Agent Code");
-            locJsonObject.Add('shipping_agent_servise_id', BoxHeader."Shipping Services Code");
+            locJsonObject.Add('shipping_agent_service_id', BoxHeader."Shipping Services Code");
             locJsonObject.Add('shipstation_statuscode', BoxHeader."ShipStation Status");
             locJsonObject.Add('shipstation_shipment_id', BoxHeader."ShipStation Shipment ID");
             locJsonObject.Add('shipstation_order_id', BoxHeader."ShipStation Order ID");
@@ -576,19 +576,33 @@ codeunit 50070 "Integration CRM"
 
     [EventSubscriber(ObjectType::Table, 112, 'OnAfterInsertEvent', '', false, false)]
     local procedure SalesInvOnAfterInsertEvent(var Rec: Record "Sales Invoice Header")
+    var
+        locPackageHeader: Record "Package Header";
     begin
-        if SalesOrderFromCRM(Rec."Order No.") then
+        if SalesOrderFromCRM(Rec."Order No.") then begin
             EntityCRMOnUpdateIdBeforeSend(lblInvoice, Rec."No.", '', Rec.SystemId);
+
+            PackageHeader.SetRange("Sales Order No.", Rec."Order No.");
+            if PackageHeader.FindFirst() then
+                EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
+        end;
     end;
 
     [EventSubscriber(ObjectType::Table, 112, 'OnAfterModifyEvent', '', false, false)]
     local procedure SalesInvOnAfterModifyEvent(var Rec: Record "Sales Invoice Header")
+    var
+        locPackageHeader: Record "Package Header";
     begin
-        if SalesOrderFromCRM(Rec."Order No.") then
+        if SalesOrderFromCRM(Rec."Order No.") then begin
             EntityCRMOnUpdateIdBeforeSend(lblInvoice, Rec."No.", '', Rec.SystemId);
+
+            PackageHeader.SetRange("Sales Order No.", Rec."Order No.");
+            if PackageHeader.FindFirst() then
+                EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
+        end;
     end;
 
-    [EventSubscriber(ObjectType::Codeunit, 50050, 'OnAfterRegisterPackage', '', false, false)]
+    // [EventSubscriber(ObjectType::Codeunit, 50050, 'OnAfterRegisterPackage', '', false, false)]
     local procedure PackageOnAfterInsertEvent(PackageNo: Code[20])
     var
         locPackageHeader: Record "Package Header";
@@ -728,22 +742,12 @@ codeunit 50070 "Integration CRM"
     end;
 
     procedure PostAllPackages()
-    var
-        EntitySetup: Record "Entity Setup";
     begin
-        EntitySetup.Get(lblPackage);
         PackageHeader.Reset();
-
         if PackageHeader.FindSet() then
             repeat
-                if EntitySetup."Source CRM" then begin
-                    SalesInvHeader.Reset();
-                    SalesInvHeader.SetCurrentKey("Order No.");
-                    SalesInvHeader.SetRange("Order No.", PackageHeader."Sales Order No.");
-                    if SalesInvHeader.FindFirst() and SalesOrderFromCRM(SalesInvHeader."Order No.") then
-                        EntityCRMOnUpdateIdBeforeSend(lblPackage, PackageHeader."No.", '', PackageHeader.SystemId)
-                end else
-                    EntityCRMOnUpdateIdBeforeSend(lblPackage, PackageHeader."No.", '', PackageHeader.SystemId);
+                if SalesOrderFromCRM(PackageHeader."Sales Order No.") then
+                    EntityCRMOnUpdateIdBeforeSend(lblPackage, PackageHeader."No.", '', PackageHeader.SystemId)
             until PackageHeader.Next() = 0;
     end;
 
