@@ -582,8 +582,8 @@ codeunit 50070 "Integration CRM"
         if SalesOrderFromCRM(Rec."Order No.") then begin
             EntityCRMOnUpdateIdBeforeSend(lblInvoice, Rec."No.", '', Rec.SystemId);
 
-            PackageHeader.SetRange("Sales Order No.", Rec."Order No.");
-            if PackageHeader.FindFirst() then
+            locPackageHeader.SetRange("Sales Order No.", Rec."Order No.");
+            if locPackageHeader.FindFirst() then
                 EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
         end;
     end;
