@@ -27,6 +27,11 @@ codeunit 50070 "Integration CRM"
         lblCustomer: Label 'CUSTOMER';
         lblInvoice: Label 'INVOICE';
         lblPackage: Label 'PACKAGE';
+        lblOrderStatus: Label 'ORDERSTATUS';
+        lblOrderSubmitted: TextConst ENU = 'Submitted', RUS = 'Передан';
+        lblOrderInProgress: TextConst ENU = 'In Progress', RUS = 'В работе';
+        lblOrderCompleted: TextConst ENU = 'Completed', RUS = 'Выполнен';
+        lblOrderCancelled: TextConst ENU = 'Cancelled', RUS = 'Отменен';
         lblSubStrURL: Label '%1%2';
         lblFileName: Label 'RequestBody_%1.txt';
         txtDialog: TextConst ENU = 'Create Request By %1\', RUS = 'Create Request By %1\';
@@ -122,6 +127,8 @@ codeunit 50070 "Integration CRM"
                     CreateRequestBodyForPostInvoice(requestBody);
                 lblPackage:
                     CreateRequestBodyForPostPackage(requestBody);
+                lblOrderStatus:
+                    CreateRequestBodyForPostOrderStatus(requestBody);
             end;
 
             if isSaveRequestBodyToFile(entityType) then begin
@@ -175,7 +182,7 @@ codeunit 50070 "Integration CRM"
                 Key1 := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
                 idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
                 idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-                EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM);
+                EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, true);
             end;
         end;
     end;
@@ -538,6 +545,68 @@ codeunit 50070 "Integration CRM"
         exit(locJsonArray);
     end;
 
+    local procedure CreateRequestBodyForPostOrderStatus(var requestBody: Text)
+    var
+        bodyArray: JsonArray;
+    begin
+        repeat
+            RecNo += 1;
+            if not IsNullGuid(EntityCRM."Id CRM") then begin
+                Clear(Body);
+
+                Body.Add('crm_id', Guid2APIStr(EntityCRM."Id CRM"));
+                Body.Add('bc_id', Guid2APIStr(EntityCRM."Id BC"));
+                Body.Add('bc_number', EntityCRM.Key1);
+                Body.Add('bc_order_status', GetOrderStatusByOrderNo(EntityCRM.Key1));
+
+                bodyArray.Add(Body);
+            end;
+
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
+
+        if GuiAllowed then
+            Window.Close();
+
+        bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure GetOrderStatusByOrderNo(OrderNo: Code[20]): Text[20]
+    var
+        SalesHeader: Record "Sales Header";
+        SalesInvHeader: Record "Sales Invoice Header";
+    begin
+        if SalesHeader.Get(SalesHeader."Document Type"::Order, OrderNo) then
+            exit(lblOrderInProgress);
+
+        SalesInvHeader.SetCurrentKey("Order No.");
+        SalesInvHeader.SetRange("Order No.", OrderNo);
+        if SalesInvHeader.IsEmpty then
+            exit(lblOrderCancelled);
+
+        exit(lblOrderCompleted);
+    end;
+
+    [EventSubscriber(ObjectType::Table, 36, 'OnAfterModifyEvent', '', false, false)]
+    local procedure OrderOnAfterModifyEvent(var Rec: Record "Sales Header"; var xRec: Record "Sales Header")
+    begin
+        if (xRec.Status = Rec.Status) or (Rec.Status <> Rec.Status::Released) then exit;
+
+        if SalesOrderFromCRM(Rec."No.") then begin
+            EntityCRMOnUpdateIdBeforeSend(lblOrderStatus, Rec."No.", '', Rec.SystemId);
+            EntityCRMOnUpdateIdAfterSend(lblOrderStatus, Rec."No.", '', Rec."CRM ID", false);
+        end;
+    end;
+
+    [EventSubscriber(ObjectType::Table, 36, 'OnAfterDeleteEvent', '', false, false)]
+    local procedure OrderOnAfterDeleteEvent(var Rec: Record "Sales Header")
+    begin
+        if SalesOrderFromCRM(Rec."No.") then begin
+            EntityCRMOnUpdateIdBeforeSend(lblOrderStatus, Rec."No.", '', Rec.SystemId);
+            EntityCRMOnUpdateIdAfterSend(lblOrderStatus, Rec."No.", '', Rec."CRM ID", false);
+        end;
+    end;
+
     [EventSubscriber(ObjectType::Table, 204, 'OnAfterInsertEvent', '', false, false)]
     local procedure UoMOnAfterInsertEvent(var Rec: Record "Unit of Measure")
     begin
@@ -644,7 +713,7 @@ codeunit 50070 "Integration CRM"
         locEntityCRM.Modify(true);
     end;
 
-    local procedure EntityCRMOnUpdateIdAfterSend(entityType: Text[30]; Key1: Code[20]; Key2: Code[20]; idCRM: Guid)
+    local procedure EntityCRMOnUpdateIdAfterSend(entityType: Text[30]; Key1: Code[20]; Key2: Code[20]; idCRM: Guid; ModifyInCRM: Boolean)
     var
         locEntityCRM: Record "Entity CRM";
     begin
@@ -653,7 +722,7 @@ codeunit 50070 "Integration CRM"
 
         locEntityCRM.Get(entityType, Key1, Key2);
         locEntityCRM."Id CRM" := idCRM;
-        locEntityCRM."Modify In CRM" := true;
+        locEntityCRM."Modify In CRM" := ModifyInCRM;
         locEntityCRM.Modify(true);
     end;
 
