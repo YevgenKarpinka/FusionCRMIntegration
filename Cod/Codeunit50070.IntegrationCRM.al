@@ -7,6 +7,7 @@ codeunit 50070 "Integration CRM"
 
     var
         Window: Dialog;
+        PackageBoxMgt: Codeunit "Package Box Mgt.";
         ShipStationSetup: Record "ShipStation Setup";
         IntegrationCRMSetup: Record "Integration CRM Setup";
         EntityCRM: Record "Entity CRM";
@@ -339,16 +340,17 @@ codeunit 50070 "Integration CRM"
         repeat
             RecNo += 1;
             if Customer.Get(EntityCRM.Key1) then begin
-                Customer.CalcFields(Balance, "Balance Due");
+                Customer.CalcFields("Balance (LCY)", "Balance Due (LCY)", "Payments (LCY)");
                 Clear(Body);
 
                 Body.Add('bcid', Guid2APIStr(Customer.SystemId));
                 Body.Add('bc_number', Customer."No.");
                 Body.Add('name', Customer.Name + Customer."Name 2");
-                Body.Add('balance', Customer.Balance);
-                Body.Add('balance_due', Customer."Balance Due");
+                Body.Add('balance', Customer."Balance (LCY)");
+                Body.Add('balance_due', Customer."Balance Due (LCY)");
                 Body.Add('credit_limit', Customer."Credit Limit (LCY)");
                 Body.Add('total_sales', CustomerGetTotalSales(Customer."No."));
+                Body.Add('payments', Customer."Payments (LCY)");
                 Body.Add('address', Customer.Address + Customer."Address 2");
                 Body.Add('country', Customer."Country/Region Code");
                 Body.Add('city', Customer.City);
@@ -515,6 +517,7 @@ codeunit 50070 "Integration CRM"
             locJsonObject.Add('shipstation_order_id', BoxHeader."ShipStation Order ID");
             locJsonObject.Add('shipstation_order_key', BoxHeader."ShipStation Order Key");
             locJsonObject.Add('boxes_line', GetBoxesLineByBox(BoxHeader."No."));
+            locJsonObject.Add('quantity', PackageBoxMgt.GetQuantityInBox(BoxHeader."No."));
 
             locJsonArray.Add(locJsonObject);
         until BoxHeader.Next() = 0;
@@ -590,7 +593,7 @@ codeunit 50070 "Integration CRM"
     [EventSubscriber(ObjectType::Table, 36, 'OnAfterModifyEvent', '', false, false)]
     local procedure OrderOnAfterModifyEvent(var Rec: Record "Sales Header"; var xRec: Record "Sales Header")
     begin
-        if (xRec.Status = Rec.Status) or (Rec.Status <> Rec.Status::Released) then exit;
+        if Rec.Status <> Rec.Status::Released then exit;
 
         if SalesOrderFromCRM(Rec."No.") then begin
             EntityCRMOnUpdateIdBeforeSend(lblOrderStatus, Rec."No.", '', Rec.SystemId);
@@ -598,7 +601,7 @@ codeunit 50070 "Integration CRM"
         end;
     end;
 
-    [EventSubscriber(ObjectType::Table, 36, 'OnAfterDeleteEvent', '', false, false)]
+    [EventSubscriber(ObjectType::Table, 36, 'OnBeforeDeleteEvent', '', false, false)]
     local procedure OrderOnAfterDeleteEvent(var Rec: Record "Sales Header")
     begin
         if SalesOrderFromCRM(Rec."No.") then begin
