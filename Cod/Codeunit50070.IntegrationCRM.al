@@ -33,6 +33,10 @@ codeunit 50070 "Integration CRM"
         lblOrderInProgress: TextConst ENU = 'In Progress', RUS = 'В работе';
         lblOrderCompleted: TextConst ENU = 'Completed', RUS = 'Выполнен';
         lblOrderCancelled: TextConst ENU = 'Cancelled', RUS = 'Отменен';
+        lblInvoiceStatus: Label 'INVOICESTATUS';
+        lblInvoiceOpen: TextConst ENU = 'Open', RUS = 'Открытый';
+        lblInvoicePaid: TextConst ENU = 'Paid', RUS = 'Оплачен';
+        lblInvoiceOverdue: TextConst ENU = 'Overdue', RUS = 'Просрочен';
         lblSubStrURL: Label '%1%2';
         lblFileName: Label 'RequestBody_%1.txt';
         txtDialog: TextConst ENU = 'Create Request By %1\', RUS = 'Create Request By %1\';
@@ -130,6 +134,8 @@ codeunit 50070 "Integration CRM"
                     CreateRequestBodyForPostPackage(requestBody);
                 lblOrderStatus:
                     CreateRequestBodyForPostOrderStatus(requestBody);
+                lblInvoiceStatus:
+                    CreateRequestBodyForPostInvoiceStatus(requestBody);
             end;
 
             if isSaveRequestBodyToFile(entityType) then begin
@@ -231,7 +237,7 @@ codeunit 50070 "Integration CRM"
 
                 Body.Add('bcid', Guid2APIStr(Item.SystemId));
                 Body.Add('item_number', Item."No.");
-                Body.Add('description', Item.Description + Item."Description 2");
+                Body.Add('description', DelChr(Item.Description + Item."Description 2", '=', '"'));
                 if ItemDescr.Get(Item."No.") then begin
                     Body.Add('name_eng', ItemDescr."Name ENG");
                     Body.Add('name_eng_2', ItemDescr."Name ENG 2");
@@ -590,14 +596,60 @@ codeunit 50070 "Integration CRM"
         exit(lblOrderCompleted);
     end;
 
-    [EventSubscriber(ObjectType::Table, 36, 'OnAfterModifyEvent', '', false, false)]
-    local procedure OrderOnAfterModifyEvent(var Rec: Record "Sales Header"; var xRec: Record "Sales Header")
+    local procedure CreateRequestBodyForPostInvoiceStatus(var requestBody: Text)
+    var
+        bodyArray: JsonArray;
     begin
-        if Rec.Status <> Rec.Status::Released then exit;
+        repeat
+            RecNo += 1;
+            if not IsNullGuid(EntityCRM."Id CRM") then begin
+                Clear(Body);
 
-        if SalesOrderFromCRM(Rec."No.") then begin
-            EntityCRMOnUpdateIdBeforeSend(lblOrderStatus, Rec."No.", '', Rec.SystemId);
-            EntityCRMOnUpdateIdAfterSend(lblOrderStatus, Rec."No.", '', Rec."CRM ID", false);
+                Body.Add('crm_id', Guid2APIStr(EntityCRM."Id CRM"));
+                Body.Add('bc_id', Guid2APIStr(EntityCRM."Id BC"));
+                Body.Add('bc_number', EntityCRM.Key1);
+                Body.Add('bc_invoice_status', GetInvoiceStatusByInvoiceNo(EntityCRM.Key1));
+
+                bodyArray.Add(Body);
+            end;
+
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
+
+        if GuiAllowed then
+            Window.Close();
+
+        bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure GetInvoiceStatusByInvoiceNo(InvoiceNo: Code[20]): Text[20]
+    var
+        SalesInvHeader: Record "Sales Invoice Header";
+        CustLedgEntry: Record "Cust. Ledger Entry";
+    begin
+        SalesInvHeader.Get(InvoiceNo);
+        CustLedgEntry.SetCurrentKey("Document No.", "Posting Date");
+        CustLedgEntry.SetRange("Document No.", SalesInvHeader."No.");
+        CustLedgEntry.SetRange("Posting Date", SalesInvHeader."Posting Date");
+        CustLedgEntry.FindFirst();
+        if CustLedgEntry.Open then begin
+            if CustLedgEntry."Due Date" > DT2Date(CurrentDateTime) then
+                exit(lblInvoiceOpen)
+            else
+                exit(lblInvoiceOverdue);
+        end;
+
+        exit(lblInvoicePaid);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Release Sales Document", 'OnAfterReleaseSalesDoc', '', false, false)]
+    local procedure OrderOnAfterModifyEvent(var SalesHeader: Record "Sales Header"; PreviewMode: Boolean)
+    begin
+        if PreviewMode then exit;
+
+        if SalesOrderFromCRM(SalesHeader."No.") then begin
+            EntityCRMOnUpdateIdBeforeSend(lblOrderStatus, SalesHeader."No.", '', SalesHeader.SystemId);
+            EntityCRMOnUpdateIdAfterSend(lblOrderStatus, SalesHeader."No.", '', SalesHeader."CRM ID", false);
         end;
     end;
 
@@ -634,6 +686,15 @@ codeunit 50070 "Integration CRM"
         EntityCRMOnUpdateIdBeforeSend(lblItem, Rec."No.", '', Rec.SystemId);
     end;
 
+    [EventSubscriber(ObjectType::Table, 50000, 'OnAfterModifyEvent', '', false, false)]
+    local procedure ItemDescriptionOnAfterModifyEvent(var Rec: Record "Item Description")
+    var
+        locItem: Record Item;
+    begin
+        locItem.Get(Rec."Item No.");
+        EntityCRMOnUpdateIdBeforeSend(lblItem, locItem."No.", '', locItem.SystemId);
+    end;
+
     [EventSubscriber(ObjectType::Table, 18, 'OnAfterInsertEvent', '', false, false)]
     local procedure CustomerOnAfterInsertEvent(var Rec: Record Customer)
     begin
@@ -657,6 +718,7 @@ codeunit 50070 "Integration CRM"
             locPackageHeader.SetRange("Sales Order No.", Rec."Order No.");
             if locPackageHeader.FindFirst() then
                 EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
+
         end;
     end;
 
@@ -672,6 +734,33 @@ codeunit 50070 "Integration CRM"
             if PackageHeader.FindFirst() then
                 EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
         end;
+    end;
+
+    [EventSubscriber(ObjectType::Table, 50071, 'OnAfterModifyEvent', '', false, false)]
+    local procedure CLEOnAfterInsertEvent(var Rec: Record "Entity CRM")
+    var
+        locSalesInvHeader: Record "Sales Invoice Header";
+    begin
+        if (Rec.Code <> lblInvoice) or not Rec."Modify In CRM" then
+            exit;
+
+        SalesInvHeader.Get(Rec.Key1);
+        if SalesOrderFromCRM(SalesInvHeader."Order No.") then
+            InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, Rec.Key1, '', Rec."Id BC");
+    end;
+
+    [EventSubscriber(ObjectType::Table, 21, 'OnAfterModifyEvent', '', false, false)]
+    local procedure CLEOnAfterModifyEvent(var Rec: Record "Cust. Ledger Entry"; var xRec: Record "Cust. Ledger Entry")
+    var
+        locSalesInvHeader: Record "Sales Invoice Header";
+    begin
+        if (Rec."Document Type" <> Rec."Document Type"::Invoice)
+        or (xRec.Open = Rec.Open) then
+            exit;
+
+        SalesInvHeader.Get(Rec."Document No.");
+        if SalesOrderFromCRM(SalesInvHeader."Order No.") then
+            InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, SalesInvHeader."No.", '', SalesInvHeader.SystemId);
     end;
 
     // [EventSubscriber(ObjectType::Codeunit, 50050, 'OnAfterRegisterPackage', '', false, false)]
@@ -829,6 +918,8 @@ codeunit 50070 "Integration CRM"
         locSH: Record "Sales Header";
         locSIH: Record "Sales Invoice Header";
     begin
+        if not CheckEnableIntegrationCRM() then exit(false);
+
         EntitySetup.Get(lblInvoice);
         if not EntitySetup."Source CRM" then
             exit(true);
@@ -883,5 +974,15 @@ codeunit 50070 "Integration CRM"
     procedure DateTime2APIStr(_Date: DateTime): Text
     begin
         exit(Format(_Date, 24, 9));
+    end;
+
+    local procedure InvoiceStatusCRMOnUpdateIdBeforeSend(entityType: Text[30]; Key1: Code[20]; Key2: Code[20]; IdBC: Guid)
+    var
+        locEntityCRM: Record "Entity CRM";
+    begin
+        if not locEntityCRM.Get(lblInvoice, Key1, '') or IsNullGuid(locEntityCRM."Id CRM") then exit;
+
+        EntityCRMOnUpdateIdBeforeSend(entityType, Key1, '', IdBC);
+        EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', locEntityCRM."Id CRM", false);
     end;
 }
