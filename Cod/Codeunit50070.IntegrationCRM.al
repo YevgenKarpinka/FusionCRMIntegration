@@ -2,7 +2,9 @@ codeunit 50070 "Integration CRM"
 {
     trigger OnRun()
     begin
-        Code();
+        CodeForEntity();
+        // Send payment
+        CodeForPayment();
     end;
 
     var
@@ -28,6 +30,7 @@ codeunit 50070 "Integration CRM"
         lblCustomer: Label 'CUSTOMER';
         lblInvoice: Label 'INVOICE';
         lblPackage: Label 'PACKAGE';
+        lblPayment: Label 'PAYMENT';
         lblOrderStatus: Label 'ORDERSTATUS';
         lblOrderSubmitted: TextConst ENU = 'Submitted', RUS = 'Передан';
         lblOrderInProgress: TextConst ENU = 'In Progress', RUS = 'В работе';
@@ -46,7 +49,7 @@ codeunit 50070 "Integration CRM"
         blankGuid: Guid;
         boolTrue: Boolean;
 
-    local procedure Code()
+    local procedure CodeForEntity()
     var
         EntitySetup: Record "Entity Setup";
     begin
@@ -64,6 +67,42 @@ codeunit 50070 "Integration CRM"
                 if EntityCRM.FindSet() then
                     OnPostEntity(EntitySetup.Code);
             until EntitySetup.Next() = 0;
+    end;
+
+    local procedure CodeForPayment()
+    var
+        PaymentCRM: Record "Payment CRM";
+    begin
+        PaymentCRM.Reset();
+        PaymentCRM.SetCurrentKey("Modify In CRM");
+        PaymentCRM.SetRange("Modify In CRM", false);
+        if PaymentCRM.FindSet(true) then
+            repeat
+                OnPostPayment(PaymentCRM);
+            until PaymentCRM.Next() = 0;
+    end;
+
+    local procedure OnPostPayment(var PaymentCRM: Record "Payment CRM"): Boolean
+    var
+        requestBody: Text;
+        responseBody: Text;
+    begin
+        repeat
+            InitRequestBodyForPostPayment(PaymentCRM, requestBody);
+            // create requestBody
+            CreateRequestBodyForPostPayment(PaymentCRM, requestBody);
+
+            if isSaveRequestBodyToFile(lblPayment) then begin
+                // while testing
+                SaveStreamToFile(requestBody, StrSubstNo(lblFileName, lblPayment));
+                exit;
+            end else begin
+                if GetEntity(lblPayment, requestMethodPOST, requestBody, responseBody) then
+                    UpdateEntityIDAndStatus(lblPayment, responseBody);
+            end;
+        until PaymentCRM.IsEmpty;
+
+        exit(true);
     end;
 
     local procedure OnUpdateEntityByType(entityType: Code[30]; _Modified: Boolean)
@@ -88,6 +127,8 @@ codeunit 50070 "Integration CRM"
         requestURL: Text;
     begin
         requestURL := GetURLForPostEntity(entityType);
+        if StrLen(DelChr(requestURL, '', ' ')) = 0 then exit(false);
+
         RequestMessage.Method := requestMethod;
         RequestMessage.SetRequestUri(requestURL);
         RequestMessage.GetHeaders(RequestHeader);
@@ -141,14 +182,14 @@ codeunit 50070 "Integration CRM"
             if isSaveRequestBodyToFile(entityType) then begin
                 // while testing
                 SaveStreamToFile(requestBody, StrSubstNo(lblFileName, entityType));
-                exit;
+                exit(true);
             end else begin
-                GetEntity(entityType, requestMethodPOST, requestBody, responseBody);
-                UpdateEntityIDAndStatus(entityType, responseBody);
+                if GetEntity(entityType, requestMethodPOST, requestBody, responseBody) then
+                    UpdateEntityIDAndStatus(entityType, responseBody);
             end;
         until EntityCRM.IsEmpty;
 
-        exit(false);
+        exit(true);
     end;
 
     local procedure InitRequestBodyForPost(entityType: Code[30]; var requestBody: Text)
@@ -165,12 +206,47 @@ codeunit 50070 "Integration CRM"
         end;
     end;
 
+    local procedure InitRequestBodyForPostPayment(var PaymentCRM: Record "Payment CRM"; var requestBody: Text)
+    begin
+        Clear(requestBody);
+        RecNo := 0;
+        Recs := PaymentCRM.Count;
+
+        PaymentCRM.FindSet();
+
+        if GuiAllowed then begin
+            Window.Open(StrSubstNo(txtDialog, lblPayment) + txtProgressBar);
+            Window.Update(3, Recs);
+        end;
+    end;
+
     local procedure isSaveRequestBodyToFile(entityType: Code[30]): Boolean
     var
         locEntitySetup: Record "Entity Setup";
     begin
         locEntitySetup.Get(entityType);
         exit(locEntitySetup."Request To File");
+    end;
+
+    local procedure UpdatePaymentIdCRM(entityType: Code[30]; responseBody: Text);
+    var
+        isError: Boolean;
+        Key1: Code[20];
+        idCRM: Guid;
+        idBC: Guid;
+        jaEntity: JsonArray;
+        jtEntity: JsonToken;
+    begin
+        jaEntity.ReadFrom(responseBody);
+        foreach jtEntity in jaEntity do begin
+            isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
+            if not isError then begin
+                Key1 := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
+                idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
+                EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, true);
+            end;
+        end;
     end;
 
     local procedure UpdateEntityIDAndStatus(entityType: Code[30]; responseBody: Text);
@@ -196,9 +272,8 @@ codeunit 50070 "Integration CRM"
 
     local procedure GetURLForPostEntity(entityType: Code[30]): Text
     begin
-        if IntegrationCRMSetup.Get(entityType) then begin
-            exit(StrSubstNo(lblSubStrURL, IntegrationCRMSetup.URL, IntegrationCRMSetup.Param));
-        end;
+        IntegrationCRMSetup.Get(entityType);
+        exit(StrSubstNo(lblSubStrURL, IntegrationCRMSetup.URL, IntegrationCRMSetup.Param));
     end;
 
     local procedure CreateRequestBodyForPostUoms(var requestBody: Text)
@@ -271,6 +346,21 @@ codeunit 50070 "Integration CRM"
             Window.Close();
 
         bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure AfterAddPaymentToRequestBody(var PaymentCRM: Record "Payment CRM")
+    begin
+        if GuiAllowed then
+            Window.Update(2, RecNo);
+
+        if RecNo < 100 then
+            PaymentCRM.Next();
+
+        if (RecNo = 100) then
+            PaymentCRM.SetFilter("Payment Entry No.", '%1..', PaymentCRM."Payment Entry No.")
+        else
+            if (Recs = RecNo) then
+                PaymentCRM.SetFilter("Payment Entry No.", '%1..', PaymentCRM."Payment Entry No." + 1);
     end;
 
     local procedure AfterAddEntityToRequestBody()
@@ -425,6 +515,7 @@ codeunit 50070 "Integration CRM"
                 Body.Add('currency_id', SalesInvHeader."Currency Code");
                 Body.Add('shipment_date', Date2APIStr(SalesInvHeader."Shipment Date"));
                 Body.Add('invoice_detail', GetInvoiceLine(SalesInvHeader."No."));
+                Body.Add('charge_delivery', GetAmountDelivery(SalesInvHeader."No.", SalesInvHeader."Sell-to Customer No."));
 
                 bodyArray.Add(Body);
             end;
@@ -465,6 +556,19 @@ codeunit 50070 "Integration CRM"
             until locSIL.Next() = 0;
 
         exit(locJsonArray);
+    end;
+
+    local procedure GetAmountDelivery(SalesInvoiceNo: Code[20]; CustomerCode: Code[20]): Decimal
+    var
+        locCust: Record Customer;
+        locSIL: Record "Sales Invoice Line";
+    begin
+        locCust.Get(CustomerCode);
+        locSIL.SetCurrentKey(Type, "No.");
+        locSIL.SetRange(Type, locSIL.Type::"Charge (Item)");
+        locSIL.SetRange("No.", locCust."Sales No. Shipment Cost");
+        locSIL.CalcSums("Amount Including VAT");
+        exit(locSIL."Amount Including VAT");
     end;
 
     local procedure CreateRequestBodyForPostPackage(var requestBody: Text)
@@ -594,6 +698,37 @@ codeunit 50070 "Integration CRM"
             exit(lblOrderCancelled);
 
         exit(lblOrderCompleted);
+    end;
+
+    local procedure CreateRequestBodyForPostPayment(var PaymentCRM: Record "Payment CRM"; var requestBody: Text)
+    var
+        bodyArray: JsonArray;
+        locEntityCRM: Record "Entity CRM";
+    begin
+        repeat
+            RecNo += 1;
+
+            if locEntityCRM.Get(lblInvoice, PaymentCRM."Invoice No.", '') and not IsNullGuid(locEntityCRM."Id CRM") then begin
+                Clear(Body);
+
+                Body.Add('crm_invoiceid', Guid2APIStr(EntityCRM."Id CRM"));
+                Body.Add('bcid', Guid2APIStr(PaymentCRM."Id BC"));
+                Body.Add('bc_number', PaymentCRM."Payment No.");
+                Body.Add('bc_invoiceid', Guid2APIStr(EntityCRM."Id BC"));
+                Body.Add('payment_amount', PaymentCRM.Amount);
+                Body.Add('payment_date', PaymentCRM."Payment Date");
+                Body.Add('apply', PaymentCRM.Apply);
+
+                bodyArray.Add(Body);
+            end;
+
+            AfterAddPaymentToRequestBody(PaymentCRM);
+        until (RecNo = 100) or (Recs = RecNo);
+
+        if GuiAllowed then
+            Window.Close();
+
+        bodyArray.WriteTo(requestBody);
     end;
 
     local procedure CreateRequestBodyForPostInvoiceStatus(var requestBody: Text)
@@ -745,22 +880,28 @@ codeunit 50070 "Integration CRM"
             exit;
 
         SalesInvHeader.Get(Rec.Key1);
-        if SalesOrderFromCRM(SalesInvHeader."Order No.") then
+        if SalesOrderFromCRM(SalesInvHeader."Order No.") then begin
             InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, Rec.Key1, '', Rec."Id BC");
+            InvoiceStatusUpdate(lblInvoiceStatus, Rec.Key1, '', true);
+        end;
     end;
 
     [EventSubscriber(ObjectType::Table, 21, 'OnAfterModifyEvent', '', false, false)]
-    local procedure CLEOnAfterModifyEvent(var Rec: Record "Cust. Ledger Entry"; var xRec: Record "Cust. Ledger Entry")
+    local procedure CLEOnAfterModifyEvent(var Rec: Record "Cust. Ledger Entry")
     var
         locSalesInvHeader: Record "Sales Invoice Header";
+        locEntityCRM: Record "Entity CRM";
     begin
-        if (Rec."Document Type" <> Rec."Document Type"::Invoice)
-        or (xRec.Open = Rec.Open) then
+        if (Rec."Document Type" <> Rec."Document Type"::Invoice) then
             exit;
 
-        SalesInvHeader.Get(Rec."Document No.");
-        if SalesOrderFromCRM(SalesInvHeader."Order No.") then
-            InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, SalesInvHeader."No.", '', SalesInvHeader.SystemId);
+        if locSalesInvHeader.Get(Rec."Document No.")
+        and locEntityCRM.Get(lblInvoiceStatus, Rec."Document No.", '')
+        and SalesOrderFromCRM(locSalesInvHeader."Order No.")
+        and (locEntityCRM."Invoice Open" <> Rec.Open) then begin
+            InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, locSalesInvHeader."No.", '', locSalesInvHeader.SystemId);
+            InvoiceStatusUpdate(lblInvoiceStatus, Rec."Document No.", '', Rec.Open);
+        end;
     end;
 
     // [EventSubscriber(ObjectType::Codeunit, 50050, 'OnAfterRegisterPackage', '', false, false)]
@@ -800,6 +941,7 @@ codeunit 50070 "Integration CRM"
             InsertEntityCRM(entityType, Key1, Key2, IdBC);
             exit;
         end;
+
 
         locEntityCRM."Modify In CRM" := false;
         locEntityCRM.Modify(true);
@@ -984,5 +1126,187 @@ codeunit 50070 "Integration CRM"
 
         EntityCRMOnUpdateIdBeforeSend(entityType, Key1, '', IdBC);
         EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', locEntityCRM."Id CRM", false);
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Gen. Jnl.-Post Line", 'OnBeforePostDtldCVLedgEntry', '', false, false)]
+    local procedure OnBeforePostDtldCVLedgEntry(var DetailedCVLedgEntryBuffer: Record "Detailed CV Ledg. Entry Buffer"; Unapply: Boolean)
+    begin
+        if Unapply then exit;
+        if DetailedCVLedgEntryBuffer."CV Ledger Entry No." = DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No." then exit;
+
+        if not (CheckUnAppliedEntryPaymentOrInvoice(DetailedCVLedgEntryBuffer."CV Ledger Entry No.")
+        and CheckUnAppliedEntryPaymentOrInvoice(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No.")) then
+            exit;
+
+        if not (isInvoiceFromCRM(DetailedCVLedgEntryBuffer."CV Ledger Entry No.")
+        and isInvoiceFromCRM(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No.")) then
+            exit;
+
+        if isPayment(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No.") then
+            CreateApplyTaskForSendingToCRM(DetailedCVLedgEntryBuffer."CV Ledger Entry No.", GetCustLedgEntrtyPostingDate(DetailedCVLedgEntryBuffer."CV Ledger Entry No."), GetCustLedgEntrtyDocumentNo(DetailedCVLedgEntryBuffer."CV Ledger Entry No."),
+                                           DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No.", GetCustLedgEntrtyPostingDate(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No."), GetCustLedgEntrtyDocumentNo(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No."),
+                                           Abs(DetailedCVLedgEntryBuffer.Amount))
+        else
+            CreateApplyTaskForSendingToCRM(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No.", GetCustLedgEntrtyPostingDate(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No."), GetCustLedgEntrtyDocumentNo(DetailedCVLedgEntryBuffer."Applied CV Ledger Entry No."),
+                                           DetailedCVLedgEntryBuffer."CV Ledger Entry No.", GetCustLedgEntrtyPostingDate(DetailedCVLedgEntryBuffer."CV Ledger Entry No."), GetCustLedgEntrtyDocumentNo(DetailedCVLedgEntryBuffer."CV Ledger Entry No."),
+                                           Abs(DetailedCVLedgEntryBuffer.Amount));
+    end;
+
+    [EventSubscriber(ObjectType::Codeunit, Codeunit::"Gen. Jnl.-Post Line", 'OnBeforeInsertDtldCustLedgEntryUnapply', '', false, false)]
+    local procedure OnBeforeInsertDtldCustLedgEntryUnapply(OldDtldCustLedgEntry: Record "Detailed Cust. Ledg. Entry")
+    begin
+        if OldDtldCustLedgEntry."Cust. Ledger Entry No." = OldDtldCustLedgEntry."Applied Cust. Ledger Entry No." then exit;
+
+        if not (CheckUnAppliedEntryPaymentOrInvoice(OldDtldCustLedgEntry."Cust. Ledger Entry No.")
+        and CheckUnAppliedEntryPaymentOrInvoice(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No.")) then
+            exit;
+
+        if not (isInvoiceFromCRM(OldDtldCustLedgEntry."Cust. Ledger Entry No.")
+                and isInvoiceFromCRM(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No.")) then
+            exit;
+
+        if isPayment(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No.") then
+            CreateUnApplyTaskForSendingToCRM(OldDtldCustLedgEntry."Cust. Ledger Entry No.", GetCustLedgEntrtyPostingDate(OldDtldCustLedgEntry."Cust. Ledger Entry No."), GetCustLedgEntrtyDocumentNo(OldDtldCustLedgEntry."Cust. Ledger Entry No."),
+                                             OldDtldCustLedgEntry."Applied Cust. Ledger Entry No.", GetCustLedgEntrtyPostingDate(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No."), GetCustLedgEntrtyDocumentNo(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No."),
+                                             Abs(OldDtldCustLedgEntry.Amount))
+        else
+            CreateUnApplyTaskForSendingToCRM(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No.", GetCustLedgEntrtyPostingDate(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No."), GetCustLedgEntrtyDocumentNo(OldDtldCustLedgEntry."Applied Cust. Ledger Entry No."),
+                                             OldDtldCustLedgEntry."Cust. Ledger Entry No.", GetCustLedgEntrtyPostingDate(OldDtldCustLedgEntry."Cust. Ledger Entry No."), GetCustLedgEntrtyDocumentNo(OldDtldCustLedgEntry."Cust. Ledger Entry No."),
+                                             Abs(OldDtldCustLedgEntry.Amount));
+    end;
+
+    local procedure CheckUnAppliedEntryPaymentOrInvoice(EntryNo: Integer): Boolean
+    var
+        CustLedgEntry: Record "Cust. Ledger Entry";
+    begin
+        if CustLedgEntry.Get(EntryNo)
+        and (CustLedgEntry."Document Type" in [CustLedgEntry."Document Type"::Invoice, CustLedgEntry."Document Type"::Payment]) then
+            exit(true);
+        exit(false);
+    end;
+
+    local procedure isInvoiceFromCRM(EntryNo: Integer): Boolean
+    var
+        CustLedgEntry: Record "Cust. Ledger Entry";
+        SalesInvoiceHeader: Record "Sales Invoice Header";
+    begin
+        if CustLedgEntry.Get(EntryNo)
+        and (CustLedgEntry."Document Type" in [CustLedgEntry."Document Type"::Invoice]) then begin
+            if SalesInvoiceHeader.Get(CustLedgEntry."Document No.")
+            and not IsNullGuid(SalesInvoiceHeader."CRM ID") then
+                exit(true);
+        end else
+            exit(true);
+
+        exit(false);
+    end;
+
+    local procedure isPayment(EntryNo: Integer): Boolean
+    var
+        CustLedgEntry: Record "Cust. Ledger Entry";
+    begin
+        if CustLedgEntry.Get(EntryNo)
+        and (CustLedgEntry."Document Type" in [CustLedgEntry."Document Type"::Payment]) then
+            exit(true);
+        exit(false);
+    end;
+
+    local procedure GetCustLedgEntrtyPostingDate(EntryNo: Integer): Date
+    var
+        CustLedgEntry: Record "Cust. Ledger Entry";
+    begin
+        if CustLedgEntry.Get(EntryNo) then;
+        exit(CustLedgEntry."Posting Date");
+    end;
+
+    local procedure GetCustLedgEntrtyDocumentNo(EntryNo: Integer): Code[20]
+    var
+        CustLedgEntry: Record "Cust. Ledger Entry";
+    begin
+        if CustLedgEntry.Get(EntryNo) then;
+        exit(CustLedgEntry."Document No.");
+    end;
+
+    local procedure CreateApplyTaskForSendingToCRM(InvoiceEntryNo: Integer; InvoiceDate: Date; InvoiceNo: Code[20];
+                                                   PaymentEntryNo: Integer; PaymentDate: Date; PaymentNo: Code[20];
+                                                   PaymentAmount: Decimal);
+    var
+        locPaymentCRM: Record "Payment CRM";
+    begin
+        if locPaymentCRM.Get(InvoiceEntryNo, PaymentEntryNo, true) then begin
+            locPaymentCRM.Amount := PaymentAmount;
+            locPaymentCRM."Modify In CRM" := false;
+            locPaymentCRM.Modify(true);
+        end else begin
+            locPaymentCRM.Init();
+            locPaymentCRM.Apply := true;
+            locPaymentCRM."Invoice Entry No." := InvoiceEntryNo;
+            locPaymentCRM."Invoice Date" := InvoiceDate;
+            locPaymentCRM."Invoice No." := InvoiceNo;
+            locPaymentCRM."Payment Entry No." := PaymentEntryNo;
+            locPaymentCRM."Payment Date" := PaymentDate;
+            locPaymentCRM."Payment No." := PaymentNo;
+            locPaymentCRM.Amount := PaymentAmount;
+            locPaymentCRM."Id BC" := GetCLEIdDByEntry(PaymentEntryNo);
+            locPaymentCRM.Insert(true);
+        end;
+    end;
+
+    local procedure CreateUnApplyTaskForSendingToCRM(InvoiceEntryNo: Integer; InvoiceDate: Date; InvoiceNo: Code[20];
+                                                     PaymentEntryNo: Integer; PaymentDate: Date; PaymentNo: Code[20];
+                                                     PaymentAmount: Decimal)
+    var
+        locPaymentCRM: Record "Payment CRM";
+    begin
+        if locPaymentCRM.Get(InvoiceEntryNo, PaymentEntryNo, false) then begin
+            locPaymentCRM.Amount := PaymentAmount;
+            locPaymentCRM."Id CRM" := GetApplyPaymentIdCRM(InvoiceEntryNo, PaymentEntryNo);
+            locPaymentCRM."Modify In CRM" := IsNullGuid(locPaymentCRM."Id CRM");
+            locPaymentCRM.Modify(true);
+        end else begin
+            locPaymentCRM.Init();
+            locPaymentCRM."Invoice Entry No." := InvoiceEntryNo;
+            locPaymentCRM."Invoice Date" := InvoiceDate;
+            locPaymentCRM."Invoice No." := InvoiceNo;
+            locPaymentCRM."Payment Entry No." := PaymentEntryNo;
+            locPaymentCRM."Payment Date" := PaymentDate;
+            locPaymentCRM."Payment No." := PaymentNo;
+            locPaymentCRM.Amount := -PaymentAmount;
+            locPaymentCRM."Id BC" := GetCLEIdDByEntry(PaymentEntryNo);
+            locPaymentCRM."Id CRM" := GetApplyPaymentIdCRM(InvoiceEntryNo, PaymentEntryNo);
+            locPaymentCRM."Modify In CRM" := IsNullGuid(locPaymentCRM."Id CRM");
+            locPaymentCRM.Insert(true);
+        end;
+    end;
+
+    local procedure GetCLEIdDByEntry(EntryNo: Integer): Guid
+    var
+        locCLE: Record "Cust. Ledger Entry";
+    begin
+        locCLE.Get(EntryNo);
+        exit(locCLE.SystemId);
+    end;
+
+    local procedure GetApplyPaymentIdCRM(InvoiceEntryNo: Integer; PaymentEntryNo: Integer): Guid
+    var
+        AppliedPaymentCRM: Record "Payment CRM";
+    begin
+        if AppliedPaymentCRM.Get(InvoiceEntryNo, PaymentEntryNo, true) then
+            if IsNullGuid(AppliedPaymentCRM."Id CRM") then begin
+                AppliedPaymentCRM."Modify In CRM" := true;
+                AppliedPaymentCRM.Modify(true);
+            end;
+
+        exit(AppliedPaymentCRM."Id CRM");
+    end;
+
+    local procedure InvoiceStatusUpdate(_entitytype: Text; _Key1: Code[20]; _Key2: Code[20]; _Open: Boolean)
+    var
+        locEntityCRM: Record "Entity CRM";
+    begin
+        if locEntityCRM.Get(_entitytype, _Key1, _Key2) then begin
+            locEntityCRM."Invoice Open" := _Open;
+            locEntityCRM.Modify(true);
+        end;
     end;
 }

@@ -67,6 +67,20 @@ table 50071 "Entity CRM"
             CaptionML = ENU = 'Id BC',
                         RUS = 'ИД BC';
         }
+        field(11; "Payment Amount"; Decimal)
+        {
+            CaptionML = ENU = 'Payment Amount',
+                        RUS = 'Сумма платежа';
+            FieldClass = FlowField;
+            CalcFormula = sum("Payment CRM".Amount where("Invoice No." = field(Key1)));
+            Editable = false;
+        }
+        field(12; "Invoice Open"; Boolean)
+        {
+            CaptionML = ENU = 'Invoice Open',
+                        RUS = 'Открытый счёт';
+            DataClassification = CustomerContent;
+        }
     }
 
     keys
