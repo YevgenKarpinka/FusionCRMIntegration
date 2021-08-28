@@ -564,7 +564,8 @@ codeunit 50070 "Integration CRM"
         locSIL: Record "Sales Invoice Line";
     begin
         locCust.Get(CustomerCode);
-        locSIL.SetCurrentKey(Type, "No.");
+        locSIL.SetCurrentKey("Document No.", Type, "No.");
+        locSIL.SetRange("Document No.", SalesInvoiceNo);
         locSIL.SetRange(Type, locSIL.Type::"Charge (Item)");
         locSIL.SetRange("No.", locCust."Sales No. Shipment Cost");
         locSIL.CalcSums("Amount Including VAT");
