@@ -15,6 +15,8 @@ codeunit 50070 "Integration CRM"
         EntityCRM: Record "Entity CRM";
         Item: Record Item;
         ItemDescr: Record "Item Description";
+        glBrand: Record Brand;
+        glManufacturer: Record Manufacturer;
         Customer: Record Customer;
         SalesInvHeader: Record "Sales Invoice Header";
         PackageHeader: Record "Package Header";
@@ -98,19 +100,21 @@ codeunit 50070 "Integration CRM"
                 exit;
             end else begin
                 if GetEntity(lblPayment, requestMethodPOST, requestBody, responseBody) then
-                    UpdateEntityIDAndStatus(lblPayment, responseBody);
+                    UpdatePaymentIdCRM(lblPayment, responseBody);
             end;
         until PaymentCRM.IsEmpty;
 
         exit(true);
     end;
 
-    local procedure OnUpdateEntityByType(entityType: Code[30]; _Modified: Boolean)
+    local procedure UpdateEntityCRM(entityType: Code[30]; Key1Filter: Text; _Modified: Boolean)
     var
         locEntityCRM: Record "Entity CRM";
     begin
         if entityType <> '' then
             locEntityCRM.SetRange(Code, entityType);
+        if Key1Filter <> '' then
+            locEntityCRM.SetFilter(Key1, '%1', Key1Filter);
         locEntityCRM.ModifyAll("Modify In CRM", _Modified, true);
     end;
 
@@ -231,7 +235,9 @@ codeunit 50070 "Integration CRM"
     local procedure UpdatePaymentIdCRM(entityType: Code[30]; responseBody: Text);
     var
         isError: Boolean;
-        Key1: Code[20];
+        PaymentNo: Code[20];
+        InvoiceNo: Code[20];
+        EntryApply: Boolean;
         idCRM: Guid;
         idBC: Guid;
         jaEntity: JsonArray;
@@ -241,10 +247,12 @@ codeunit 50070 "Integration CRM"
         foreach jtEntity in jaEntity do begin
             isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
             if not isError then begin
-                Key1 := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                PaymentNo := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                InvoiceNo := GetJSToken(jtEntity.AsObject(), 'bcInvoice').AsValue().AsText();
+                EntryApply := GetJSToken(jtEntity.AsObject(), 'bcApply').AsValue().AsBoolean();
                 idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
                 idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-                EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, true);
+                PaymentCRMOnUpdateIdAfterSend(PaymentNo, InvoiceNo, EntryApply, idCRM, true);
             end;
         end;
     end;
@@ -335,6 +343,14 @@ codeunit 50070 "Integration CRM"
                 Body.Add('price', Item."Unit Price");
                 Body.Add('promotional_price', GetPromotionalPrice(Item."No."));
                 Body.Add('productuom', GetItemUoM(Item."No."));
+                if glManufacturer.Get(Item."Manufacturer Code") then begin
+                    Body.Add('manufacturer_eng', glManufacturer.Name);
+                    Body.Add('manufacturer_ru', glManufacturer."Name RU");
+                end;
+                if glBrand.Get(Item."Brand Code", Item."Manufacturer Code") then begin
+                    Body.Add('brand_eng', glBrand.Name);
+                    Body.Add('brand_ru', glBrand."Name RU");
+                end;
 
                 bodyArray.Add(Body);
             end;
@@ -715,7 +731,7 @@ codeunit 50070 "Integration CRM"
                 Body.Add('crm_invoiceid', Guid2APIStr(EntityCRM."Id CRM"));
                 Body.Add('bcid', Guid2APIStr(PaymentCRM."Id BC"));
                 Body.Add('bc_number', PaymentCRM."Payment No.");
-                Body.Add('bc_invoiceid', Guid2APIStr(EntityCRM."Id BC"));
+                Body.Add('bc_invoice_number', PaymentCRM."Invoice No.");
                 Body.Add('payment_amount', PaymentCRM.Amount);
                 Body.Add('payment_date', PaymentCRM."Payment Date");
                 Body.Add('apply', PaymentCRM.Apply);
@@ -876,14 +892,33 @@ codeunit 50070 "Integration CRM"
     local procedure CLEOnAfterInsertEvent(var Rec: Record "Entity CRM")
     var
         locSalesInvHeader: Record "Sales Invoice Header";
+        locCLE: Record "Cust. Ledger Entry";
     begin
-        if (Rec.Code <> lblInvoice) or not Rec."Modify In CRM" then
+        if not (Rec.Code = lblInvoice) then
             exit;
 
         SalesInvHeader.Get(Rec.Key1);
+        locCLE.Get(SalesInvHeader."Cust. Ledger Entry No.");
         if SalesOrderFromCRM(SalesInvHeader."Order No.") then begin
             InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, Rec.Key1, '', Rec."Id BC");
-            InvoiceStatusUpdate(lblInvoiceStatus, Rec.Key1, '', true);
+            InvoiceStatusUpdate(lblInvoiceStatus, Rec.Key1, '', locCLE.Open);
+        end;
+    end;
+
+    [EventSubscriber(ObjectType::Table, 21, 'OnBeforeValidateEvent', 'Due Date', false, false)]
+    local procedure CLEOnBeforeModifyEvent(var xRec: Record "Cust. Ledger Entry"; var Rec: Record "Cust. Ledger Entry"; CurrFieldNo: Integer)
+    var
+        locSalesInvHeader: Record "Sales Invoice Header";
+        locEntityCRM: Record "Entity CRM";
+    begin
+        if (xRec."Due Date" = Rec."Due Date")
+        and not (Rec."Document Type" = Rec."Document Type"::Invoice) then
+            exit;
+
+        if locSalesInvHeader.Get(Rec."Document No.")
+        and SalesOrderFromCRM(locSalesInvHeader."Order No.") then begin
+            InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, locSalesInvHeader."No.", '', locSalesInvHeader.SystemId);
+            InvoiceStatusUpdate(lblInvoiceStatus, Rec."Document No.", '', Rec.Open);
         end;
     end;
 
@@ -893,16 +928,41 @@ codeunit 50070 "Integration CRM"
         locSalesInvHeader: Record "Sales Invoice Header";
         locEntityCRM: Record "Entity CRM";
     begin
-        if (Rec."Document Type" <> Rec."Document Type"::Invoice) then
+        if not (Rec."Document Type" = Rec."Document Type"::Invoice) then
             exit;
 
         if locSalesInvHeader.Get(Rec."Document No.")
-        and locEntityCRM.Get(lblInvoiceStatus, Rec."Document No.", '')
-        and SalesOrderFromCRM(locSalesInvHeader."Order No.")
-        and (locEntityCRM."Invoice Open" <> Rec.Open) then begin
-            InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, locSalesInvHeader."No.", '', locSalesInvHeader.SystemId);
-            InvoiceStatusUpdate(lblInvoiceStatus, Rec."Document No.", '', Rec.Open);
+        and SalesOrderFromCRM(locSalesInvHeader."Order No.") then begin
+            if locEntityCRM.Get(lblInvoiceStatus, Rec."Document No.", '') then begin
+                if locEntityCRM."Invoice Open" <> Rec.Open then begin
+                    InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, locSalesInvHeader."No.", '', locSalesInvHeader.SystemId);
+                    InvoiceStatusUpdate(lblInvoiceStatus, Rec."Document No.", '', Rec.Open);
+                end;
+            end else begin
+                InvoiceStatusCRMOnUpdateIdBeforeSend(lblInvoiceStatus, locSalesInvHeader."No.", '', locSalesInvHeader.SystemId);
+                InvoiceStatusUpdate(lblInvoiceStatus, Rec."Document No.", '', Rec.Open);
+            end;
         end;
+    end;
+
+    // [EventSubscriber(ObjectType::Table, 271, 'OnAfterInsertEvent', '', false, false)]
+    local procedure BALEOnAfterInsertEvent(var Rec: Record "Bank Account Ledger Entry")
+    begin
+        if Rec."Reversed Entry No." <> 0 then exit;
+        // if not CustomerExistInCRM() then exit;
+
+        EntityCRMOnUpdateIdBeforeSend(lblPayment, Rec."Document No.", '', Rec.SystemId);
+    end;
+
+    // [EventSubscriber(ObjectType::Table, 271, 'OnAfterModifyEvent', '', false, false)]
+    local procedure BALEOnAfterModifyEvent(var Rec: Record "Bank Account Ledger Entry")
+    begin
+        if Rec."Reversed Entry No." <> 0 then exit;
+        // if not CustomerExistInCRM(Rec."Bal. Account Type", Rec."Bal. Account No.") then exit;
+
+        EntityCRMOnUpdateIdBeforeSend(lblPayment, Rec."Document No.", '', Rec.SystemId);
+        if Rec."Reversed by Entry No." <> 0 then
+            UpdateEntityCRM(lblPayment, Rec."Document No.", false);
     end;
 
     // [EventSubscriber(ObjectType::Codeunit, 50050, 'OnAfterRegisterPackage', '', false, false)]
@@ -937,6 +997,9 @@ codeunit 50070 "Integration CRM"
     begin
         // check enable integration CRM
         if not CheckEnableIntegrationCRM() or (Key1 = '') then exit;
+        // check item fields filled
+        // if entityType = lblItem then
+        //     if not CheckItemFieldsFilled(Key1) then exit;
 
         if not locEntityCRM.Get(entityType, Key1, Key2) then begin
             InsertEntityCRM(entityType, Key1, Key2, IdBC);
@@ -959,6 +1022,22 @@ codeunit 50070 "Integration CRM"
         locEntityCRM."Id CRM" := idCRM;
         locEntityCRM."Modify In CRM" := ModifyInCRM;
         locEntityCRM.Modify(true);
+    end;
+
+    local procedure PaymentCRMOnUpdateIdAfterSend(_PaymentNo: Code[20]; _InvoiceNo: Code[20]; _Apply: Boolean; idCRM: Guid; ModifyInCRM: Boolean)
+    var
+        locPaymentCRM: Record "Payment CRM";
+    begin
+        // check enable integration CRM
+        if not CheckEnableIntegrationCRM() or (_PaymentNo = '') or (_InvoiceNo = '') then exit;
+
+        locPaymentCRM.SetRange("Payment No.", _PaymentNo);
+        locPaymentCRM.SetRange("Invoice No.", _InvoiceNo);
+        locPaymentCRM.SetRange(Apply, _Apply);
+        locPaymentCRM.FindFirst();
+        locPaymentCRM."Id CRM" := idCRM;
+        locPaymentCRM."Modify In CRM" := ModifyInCRM;
+        locPaymentCRM.Modify(true);
     end;
 
     local procedure CheckEnableIntegrationCRM(): Boolean
@@ -1260,7 +1339,7 @@ codeunit 50070 "Integration CRM"
         locPaymentCRM: Record "Payment CRM";
     begin
         if locPaymentCRM.Get(InvoiceEntryNo, PaymentEntryNo, false) then begin
-            locPaymentCRM.Amount := PaymentAmount;
+            locPaymentCRM.Amount := -PaymentAmount;
             locPaymentCRM."Id CRM" := GetApplyPaymentIdCRM(InvoiceEntryNo, PaymentEntryNo);
             locPaymentCRM."Modify In CRM" := IsNullGuid(locPaymentCRM."Id CRM");
             locPaymentCRM.Modify(true);
@@ -1309,5 +1388,35 @@ codeunit 50070 "Integration CRM"
             locEntityCRM."Invoice Open" := _Open;
             locEntityCRM.Modify(true);
         end;
+    end;
+
+    local procedure CheckItemFieldsFilled(ItemNo: Code[20]): Boolean
+    begin
+        if not Item.Get(EntityCRM.Key1)
+        or not ItemDescr.Get(Item."No.")
+        or (DelChr(Item.Description + Item."Description 2", '=', ' ') = '')
+        or (DelChr(ItemDescr."Name ENG" + ItemDescr."Name ENG 2", '=', ' ') = '')
+        or (DelChr(ItemDescr."Name RU" + ItemDescr."Name RU 2", '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Description RU")), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Ingredients RU")), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Indications RU")), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Directions RU")), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Warning)), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Legal Disclaimer")), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Description)), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Ingredients)), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Indications)), '=', ' ') = '')
+        or (DelChr(Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Directions)), '=', ' ') = '')
+        or (Item."Unit Price" = 0) then
+            exit(false);
+
+        exit(true);
+    end;
+
+    local procedure EntityExistInCRM(EntityType: Enum "Payment Balance Account Type"; EntityNo: Code[20]): Boolean
+    var
+        myInt: Integer;
+    begin
+
     end;
 }
