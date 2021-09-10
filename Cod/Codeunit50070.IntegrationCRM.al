@@ -729,6 +729,7 @@ codeunit 50070 "Integration CRM"
                 Clear(Body);
 
                 Body.Add('crm_invoiceid', Guid2APIStr(EntityCRM."Id CRM"));
+                Body.Add('crm_salesorderid', Guid2APIStr(GetOrderCRMId(PaymentCRM."Invoice No.")));
                 Body.Add('bcid', Guid2APIStr(PaymentCRM."Id BC"));
                 Body.Add('bc_number', PaymentCRM."Payment No.");
                 Body.Add('bc_invoice_number', PaymentCRM."Invoice No.");
@@ -1413,10 +1414,11 @@ codeunit 50070 "Integration CRM"
         exit(true);
     end;
 
-    local procedure EntityExistInCRM(EntityType: Enum "Payment Balance Account Type"; EntityNo: Code[20]): Boolean
+    local procedure GetOrderCRMId(InvoiceNo: Code[20]): Guid
     var
-        myInt: Integer;
+        locSIH: Record "Sales Invoice Header";
     begin
-
+        locSIH.Get(InvoiceNo);
+        exit(locSIH."CRM ID");
     end;
 }
