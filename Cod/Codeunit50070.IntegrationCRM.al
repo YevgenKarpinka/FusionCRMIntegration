@@ -76,12 +76,13 @@ codeunit 50070 "Integration CRM"
         PaymentCRM: Record "Payment CRM";
     begin
         PaymentCRM.Reset();
-        PaymentCRM.SetCurrentKey("Modify In CRM");
+        PaymentCRM.SetCurrentKey(Apply, "Modify In CRM");
+        PaymentCRM.SetAscending(Apply, false);
         PaymentCRM.SetRange("Modify In CRM", false);
-        if PaymentCRM.FindSet(true) then
-            repeat
+        if PaymentCRM.FindSet() then
+            // repeat
                 OnPostPayment(PaymentCRM);
-            until PaymentCRM.Next() = 0;
+        // until PaymentCRM.Next() = 0;
     end;
 
     local procedure OnPostPayment(var PaymentCRM: Record "Payment CRM"): Boolean
@@ -99,10 +100,14 @@ codeunit 50070 "Integration CRM"
                 SaveStreamToFile(requestBody, StrSubstNo(lblFileName, lblPayment));
                 exit;
             end else begin
-                if GetEntity(lblPayment, requestMethodPOST, requestBody, responseBody) then
-                    UpdatePaymentIdCRM(lblPayment, responseBody);
+                if requestBody <> '[]' then
+                    if GetEntity(lblPayment, requestMethodPOST, requestBody, responseBody) then
+                        UpdatePaymentIdCRM(lblPayment, responseBody);
             end;
-        until PaymentCRM.IsEmpty;
+        until PaymentCRM.IsEmpty or (requestBody = '[]');
+
+        if GuiAllowed then
+            Window.Close();
 
         exit(true);
     end;
@@ -193,6 +198,9 @@ codeunit 50070 "Integration CRM"
             end;
         until EntityCRM.IsEmpty;
 
+        if GuiAllowed then
+            Window.Close();
+
         exit(true);
     end;
 
@@ -247,10 +255,12 @@ codeunit 50070 "Integration CRM"
         foreach jtEntity in jaEntity do begin
             isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
             if not isError then begin
+                Clear(idCRM);
                 PaymentNo := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
                 InvoiceNo := GetJSToken(jtEntity.AsObject(), 'bcInvoice').AsValue().AsText();
                 EntryApply := GetJSToken(jtEntity.AsObject(), 'bcApply').AsValue().AsBoolean();
-                idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
+                if EntryApply then
+                    idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
                 idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
                 PaymentCRMOnUpdateIdAfterSend(PaymentNo, InvoiceNo, EntryApply, idCRM, true);
             end;
@@ -303,9 +313,6 @@ codeunit 50070 "Integration CRM"
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
 
-        if GuiAllowed then
-            Window.Close();
-
         bodyArray.WriteTo(requestBody);
     end;
 
@@ -357,9 +364,6 @@ codeunit 50070 "Integration CRM"
 
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
-
-        if GuiAllowed then
-            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -480,9 +484,6 @@ codeunit 50070 "Integration CRM"
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
 
-        if GuiAllowed then
-            Window.Close();
-
         bodyArray.WriteTo(requestBody);
     end;
 
@@ -538,9 +539,6 @@ codeunit 50070 "Integration CRM"
 
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
-
-        if GuiAllowed then
-            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -609,9 +607,6 @@ codeunit 50070 "Integration CRM"
 
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
-
-        if GuiAllowed then
-            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -695,9 +690,6 @@ codeunit 50070 "Integration CRM"
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
 
-        if GuiAllowed then
-            Window.Close();
-
         bodyArray.WriteTo(requestBody);
     end;
 
@@ -728,7 +720,7 @@ codeunit 50070 "Integration CRM"
             if locEntityCRM.Get(lblInvoice, PaymentCRM."Invoice No.", '') and not IsNullGuid(locEntityCRM."Id CRM") then begin
                 Clear(Body);
 
-                Body.Add('crm_invoiceid', Guid2APIStr(EntityCRM."Id CRM"));
+                Body.Add('crm_invoiceid', Guid2APIStr(locEntityCRM."Id CRM"));
                 Body.Add('crm_salesorderid', Guid2APIStr(GetOrderCRMId(PaymentCRM."Invoice No.")));
                 Body.Add('bcid', Guid2APIStr(PaymentCRM."Id BC"));
                 Body.Add('bc_number', PaymentCRM."Payment No.");
@@ -742,9 +734,6 @@ codeunit 50070 "Integration CRM"
 
             AfterAddPaymentToRequestBody(PaymentCRM);
         until (RecNo = 100) or (Recs = RecNo);
-
-        if GuiAllowed then
-            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -768,9 +757,6 @@ codeunit 50070 "Integration CRM"
 
             AfterAddEntityToRequestBody();
         until (RecNo = 100) or (Recs = RecNo);
-
-        if GuiAllowed then
-            Window.Close();
 
         bodyArray.WriteTo(requestBody);
     end;
