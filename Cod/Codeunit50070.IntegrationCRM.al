@@ -23,6 +23,7 @@ codeunit 50070 "Integration CRM"
         BoxHeader: Record "Box Header";
         BoxLine: Record "Box Line";
         UoM: Record "Unit of Measure";
+        ItemCategory: Record "Item Category";
         CustomerMgt: Codeunit "Customer Mgt.";
         IntegrationCRMLog: Record "Integration CRM Log";
         requestMethodPOST: Label 'POST';
@@ -42,6 +43,8 @@ codeunit 50070 "Integration CRM"
         lblInvoiceOpen: TextConst ENU = 'Open', RUS = 'Открытый';
         lblInvoicePaid: TextConst ENU = 'Paid', RUS = 'Оплачен';
         lblInvoiceOverdue: TextConst ENU = 'Overdue', RUS = 'Просрочен';
+        lblUpdateOrder: Label 'UPDATEORDER';
+        lblItemCategory: Label 'ITEMCATEGORY';
         lblSubStrURL: Label '%1%2';
         lblFileName: Label 'RequestBody_%1.txt';
         txtDialog: TextConst ENU = 'Create Request By %1\', RUS = 'Create Request By %1\';
@@ -50,6 +53,7 @@ codeunit 50070 "Integration CRM"
         RecNo: Integer;
         blankGuid: Guid;
         boolTrue: Boolean;
+        maxLoop: Integer;
 
     local procedure CodeForEntity()
     var
@@ -168,12 +172,15 @@ codeunit 50070 "Integration CRM"
         requestBody: Text;
         responseBody: Text;
     begin
+        Clear(maxLoop);
         repeat
             InitRequestBodyForPost(entityType, requestBody);
             // create requestBody
             case entityType of
                 lblUoM:
                     CreateRequestBodyForPostUoms(requestBody);
+                lblItemCategory:
+                    CreateRequestBodyForPostItemCategory(requestBody);
                 lblItem:
                     CreateRequestBodyForPostItems(requestBody);
                 lblCustomer:
@@ -182,6 +189,9 @@ codeunit 50070 "Integration CRM"
                     CreateRequestBodyForPostInvoice(requestBody);
                 lblPackage:
                     CreateRequestBodyForPostPackage(requestBody);
+                // to do
+                // lblUpdateOrder:
+                // CreateRequestBodyForPostUpdateOrder(requestBody);
                 lblOrderStatus:
                     CreateRequestBodyForPostOrderStatus(requestBody);
                 lblInvoiceStatus:
@@ -196,7 +206,7 @@ codeunit 50070 "Integration CRM"
                 if GetEntity(entityType, requestMethodPOST, requestBody, responseBody) then
                     UpdateEntityIDAndStatus(entityType, responseBody);
             end;
-        until EntityCRM.IsEmpty;
+        until EntityCRM.IsEmpty or (maxLoop > 3);
 
         if GuiAllowed then
             Window.Close();
@@ -206,9 +216,11 @@ codeunit 50070 "Integration CRM"
 
     local procedure InitRequestBodyForPost(entityType: Code[30]; var requestBody: Text)
     begin
+
         Clear(requestBody);
         RecNo := 0;
         Recs := EntityCRM.Count;
+        maxLoop += 1;
 
         EntityCRM.FindSet();
 
@@ -306,6 +318,40 @@ codeunit 50070 "Integration CRM"
                 Body.Add('bcid', Guid2APIStr(UoM.SystemId));
                 Body.Add('name', UoM.Code);
                 Body.Add('description', UoM.Description);
+
+                bodyArray.Add(Body);
+            end;
+
+            AfterAddEntityToRequestBody();
+        until (RecNo = 100) or (Recs = RecNo);
+
+        bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure CreateRequestBodyForPostItemCategory(var requestBody: Text)
+    var
+        bodyArray: JsonArray;
+    begin
+        repeat
+            RecNo += 1;
+            if ItemCategory.Get(EntityCRM.Key1) then begin
+                Clear(Body);
+
+                // title : "Строка текста" 
+                // new_bcid : "Строка текста"
+                // category_number : Строка текста
+                // parentcategoryid : "Parent Category id"
+                // description : "Строка текста"
+                // new_description_ru : "Строка текста"
+                // to do
+                // if ItemCategory."Parent Category" <> '' then
+
+                Body.Add('title', ItemCategory.Code);
+                Body.Add('bcid', Guid2APIStr(ItemCategory.SystemId));
+                Body.Add('category_number', ItemCategory.Indentation);
+                Body.Add('parentcategoryid', Guid2APIStr(GetCategoryId(ItemCategory."Parent Category")));
+                Body.Add('description', ItemCategory.Description);
+                Body.Add('description_ru', ItemCategory."Description RU");
 
                 bodyArray.Add(Body);
             end;
@@ -813,6 +859,18 @@ codeunit 50070 "Integration CRM"
         EntityCRMOnUpdateIdBeforeSend(lblUoM, Rec.Code, '', Rec.SystemId);
     end;
 
+    [EventSubscriber(ObjectType::Table, 5722, 'OnAfterInsertEvent', '', false, false)]
+    local procedure ItemCategoryOnAfterInsertEvent(var Rec: Record "Item Category")
+    begin
+        EntityCRMOnUpdateIdBeforeSend(lblItemCategory, Rec.Code, '', Rec.SystemId);
+    end;
+
+    [EventSubscriber(ObjectType::Table, 5722, 'OnAfterModifyEvent', '', false, false)]
+    local procedure ItemCategoryOnAfterModifyEvent(var Rec: Record "Item Category")
+    begin
+        EntityCRMOnUpdateIdBeforeSend(lblItemCategory, Rec.Code, '', Rec.SystemId);
+    end;
+
     [EventSubscriber(ObjectType::Table, 27, 'OnAfterInsertEvent', '', false, false)]
     local procedure ItemOnAfterInsertEvent(var Rec: Record Item)
     begin
@@ -1066,6 +1124,7 @@ codeunit 50070 "Integration CRM"
         if not CheckEnableIntegrationCRM() then exit;
 
         PostAllUoM();
+        PostAllItemCategories();
         PostAllItems();
         PostAllCustomers();
         PostAllInvoices();
@@ -1079,6 +1138,16 @@ codeunit 50070 "Integration CRM"
             repeat
                 EntityCRMOnUpdateIdBeforeSend(lblUoM, UoM.Code, '', UoM.SystemId);
             until UoM.Next() = 0;
+    end;
+
+    procedure PostAllItemCategories()
+    begin
+        ItemCategory.Reset();
+        ItemCategory.SetCurrentKey(Indentation);
+        if ItemCategory.FindSet() then
+            repeat
+                EntityCRMOnUpdateIdBeforeSend(lblItemCategory, ItemCategory.Code, '', ItemCategory.SystemId);
+            until ItemCategory.Next() = 0;
     end;
 
     procedure PostAllItems()
@@ -1406,5 +1475,14 @@ codeunit 50070 "Integration CRM"
     begin
         locSIH.Get(InvoiceNo);
         exit(locSIH."CRM ID");
+    end;
+
+    local procedure GetCategoryId(ItemParentCategory: Code[20]): Guid
+    var
+        locItemCategory: Record "Item Category";
+    begin
+        if locItemCategory.Get(ItemParentCategory) then
+            exit(locItemCategory.SystemId);
+        exit(blankGuid);
     end;
 }

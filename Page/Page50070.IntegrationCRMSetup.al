@@ -84,6 +84,18 @@ page 50070 "Integration CRM Setup"
                     Message(lblProcessCompleted);
                 end;
             }
+            action(SendAllItemCategories)
+            {
+                CaptionML = ENU = 'Send All Item Categories',
+                            RUS = 'Send All Item Categories';
+                ApplicationArea = All;
+
+                trigger OnAction()
+                begin
+                    IntegrationCRM.PostAllItemCategories();
+                    Message(lblProcessCompleted);
+                end;
+            }
             action(SendAllItems)
             {
                 CaptionML = ENU = 'Send All Items',
