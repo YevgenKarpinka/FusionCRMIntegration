@@ -337,12 +337,6 @@ codeunit 50070 "Integration CRM"
             if ItemCategory.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
-                // title : "Строка текста" 
-                // new_bcid : "Строка текста"
-                // category_number : Строка текста
-                // parentcategoryid : "Parent Category id"
-                // description : "Строка текста"
-                // new_description_ru : "Строка текста"
                 // to do
                 // if ItemCategory."Parent Category" <> '' then
 
