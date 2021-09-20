@@ -24,6 +24,7 @@ codeunit 50070 "Integration CRM"
         BoxLine: Record "Box Line";
         UoM: Record "Unit of Measure";
         ItemCategory: Record "Item Category";
+        ItemFilterGroup: Record "Item Filter Group";
         CustomerMgt: Codeunit "Customer Mgt.";
         IntegrationCRMLog: Record "Integration CRM Log";
         requestMethodPOST: Label 'POST';
@@ -53,7 +54,6 @@ codeunit 50070 "Integration CRM"
         RecNo: Integer;
         blankGuid: Guid;
         boolTrue: Boolean;
-        maxLoop: Integer;
 
     local procedure CodeForEntity()
     var
@@ -68,6 +68,7 @@ codeunit 50070 "Integration CRM"
         if EntitySetup.FindSet() then
             repeat
                 EntityCRM.Reset();
+                EntityCRM.SetCurrentKey(Code, Rank, "Modify In CRM");
                 EntityCRM.SetRange(Code, EntitySetup.Code);
                 EntityCRM.SetRange("Modify In CRM", false);
                 if EntityCRM.FindSet() then
@@ -171,8 +172,8 @@ codeunit 50070 "Integration CRM"
     var
         requestBody: Text;
         responseBody: Text;
+
     begin
-        Clear(maxLoop);
         repeat
             InitRequestBodyForPost(entityType, requestBody);
             // create requestBody
@@ -206,7 +207,7 @@ codeunit 50070 "Integration CRM"
                 if GetEntity(entityType, requestMethodPOST, requestBody, responseBody) then
                     UpdateEntityIDAndStatus(entityType, responseBody);
             end;
-        until EntityCRM.IsEmpty or (maxLoop > 3);
+        until EntityCRM.IsEmpty;
 
         if GuiAllowed then
             Window.Close();
@@ -220,7 +221,6 @@ codeunit 50070 "Integration CRM"
         Clear(requestBody);
         RecNo := 0;
         Recs := EntityCRM.Count;
-        maxLoop += 1;
 
         EntityCRM.FindSet();
 
@@ -309,7 +309,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostUoms(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblUoM);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if UoM.Get(EntityCRM.Key1) then begin
@@ -323,7 +328,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -331,19 +336,22 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostItemCategory(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblItemCategory);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if ItemCategory.Get(EntityCRM.Key1) then begin
                 Clear(Body);
 
-                // to do
-                // if ItemCategory."Parent Category" <> '' then
-
                 Body.Add('title', ItemCategory.Code);
                 Body.Add('bcid', Guid2APIStr(ItemCategory.SystemId));
                 Body.Add('category_number', ItemCategory.Indentation);
-                Body.Add('parentcategoryid', Guid2APIStr(GetCategoryId(ItemCategory."Parent Category")));
+                if ItemCategory.Indentation > 0 then
+                    Body.Add('parentcategoryid', Guid2APIStr(GetCategoryId(ItemCategory."Parent Category")));
                 Body.Add('description', ItemCategory.Description);
                 Body.Add('description_ru', ItemCategory."Description RU");
 
@@ -351,7 +359,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -359,7 +367,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostItems(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblItem);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if Item.Get(EntityCRM.Key1) then begin
@@ -399,11 +412,17 @@ codeunit 50070 "Integration CRM"
                     Body.Add('brand_ru', glBrand."Name RU");
                 end;
 
+                if ItemCategory.Get(Item."Item Category Code") then
+                    Body.Add('category', Guid2APIStr(ItemCategory.SystemId));
+
+                if ItemFilterGroupExist(Item."No.") then
+                    Body.Add('filters_group', jsonGetFilterGroupArray(Item."No."));
+
                 bodyArray.Add(Body);
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -492,7 +511,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostCustomer(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblCustomer);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if Customer.Get(EntityCRM.Key1) then begin
@@ -522,7 +546,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -557,7 +581,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostInvoice(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblInvoice);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if SalesInvHeader.Get(EntityCRM.Key1) then begin
@@ -578,7 +607,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -629,7 +658,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostPackage(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblPackage);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if PackageHeader.Get(EntityCRM.Key1) then begin
@@ -646,7 +680,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -713,7 +747,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostOrderStatus(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblOrderStatus);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if not IsNullGuid(EntityCRM."Id CRM") then begin
@@ -728,7 +767,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -753,7 +792,12 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
         locEntityCRM: Record "Entity CRM";
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblPayment);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
 
@@ -773,7 +817,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddPaymentToRequestBody(PaymentCRM);
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -781,7 +825,12 @@ codeunit 50070 "Integration CRM"
     local procedure CreateRequestBodyForPostInvoiceStatus(var requestBody: Text)
     var
         bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
     begin
+        EntitySetup.Get(lblInvoiceStatus);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+
         repeat
             RecNo += 1;
             if not IsNullGuid(EntityCRM."Id CRM") then begin
@@ -796,7 +845,7 @@ codeunit 50070 "Integration CRM"
             end;
 
             AfterAddEntityToRequestBody();
-        until (RecNo = 100) or (Recs = RecNo);
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
     end;
@@ -1020,13 +1069,16 @@ codeunit 50070 "Integration CRM"
     begin
         if not CheckEnableIntegrationCRM() then exit;
 
-        if locEntityCRM.Get(entityType, Key1, Key2) then exit;
+        if locEntityCRM.Get(entityType, Key1, Key2)
+        and (locEntityCRM.Rank = GetEntityRank(entityType, Key1)) then
+            exit;
 
         locEntityCRM.Init();
         locEntityCRM.Code := entityType;
         locEntityCRM.Key1 := Key1;
         locEntityCRM.Key2 := Key2;
         locEntityCRM."Id BC" := IdBC;
+        locEntityCRM.Rank := GetEntityRank(entityType, Key1);
         locEntityCRM.Insert(true);
     end;
 
@@ -1478,5 +1530,86 @@ codeunit 50070 "Integration CRM"
         if locItemCategory.Get(ItemParentCategory) then
             exit(locItemCategory.SystemId);
         exit(blankGuid);
+    end;
+
+    local procedure GetEntityRank(entityType: Text[30]; Key1: Code[20]): Integer
+    var
+        myInt: Integer;
+    begin
+        case entityType of
+            lblItemCategory:
+                exit(GetItemCategiryRank(Key1));
+            else
+                exit(0)
+        end;
+    end;
+
+    local procedure GetItemCategiryRank(Key1: Code[20]): Integer
+    var
+        locItemCategory: Record "Item Category";
+    begin
+        locItemCategory.Get(Key1);
+        exit(locItemCategory.Indentation);
+    end;
+
+    local procedure jsonGetFilterGroupArray(ItemNo: Code[20]): JsonArray
+    var
+        locItemFilterGroup: Record "Item Filter Group";
+        oldItemFilterGroup: Text[50];
+        jsonItemFilterGroupArray: JsonArray;
+        jsonItemFilterGroup: JsonObject;
+        jsonItemFilters: JsonArray;
+    begin
+        locItemFilterGroup.SetRange("Item No.", ItemNo);
+        if locItemFilterGroup.FindSet() then
+            repeat
+                if oldItemFilterGroup <> locItemFilterGroup."Filter Group" then begin
+                    jsonItemFilterGroup.Add('name_eng', locItemFilterGroup."Filter Group");
+                    jsonItemFilterGroup.Add('name_ru', locItemFilterGroup."Filter Group RUS");
+                    jsonItemFilterGroup.Add('filters_eng', AddItemFilterGroupENArray(locItemFilterGroup."Item No.", locItemFilterGroup."Filter Group"));
+                    jsonItemFilterGroup.Add('filters_ru', AddItemFilterGroupRUArray(locItemFilterGroup."Item No.", locItemFilterGroup."Filter Group"));
+                    jsonItemFilterGroupArray.Add(jsonItemFilterGroup);
+                    jsonItemFilters.Add(jsonItemFilterGroup);
+                    Clear(jsonItemFilterGroup);
+                    oldItemFilterGroup := locItemFilterGroup."Filter Group";
+                end;
+            until locItemFilterGroup.Next() = 0;
+        exit(jsonItemFilters);
+    end;
+
+    local procedure AddItemFilterGroupENArray(_ItemNo: Code[20]; _FilterGroup: Text[50]): JsonArray
+    var
+        _ItemFilterGroup: Record "Item Filter Group";
+        _jsonItemFilterGroupArray: JsonArray;
+    begin
+        _ItemFilterGroup.SetRange("Item No.", _ItemNo);
+        _ItemFilterGroup.SetRange("Filter Group", _FilterGroup);
+        if _ItemFilterGroup.FindSet(false, false) then
+            repeat
+                _jsonItemFilterGroupArray.Add(_ItemFilterGroup."Filter Value");
+            until _ItemFilterGroup.Next() = 0;
+        exit(_jsonItemFilterGroupArray);
+    end;
+
+    local procedure AddItemFilterGroupRUArray(_ItemNo: Code[20]; _FilterGroup: Text[50]): JsonArray
+    var
+        _ItemFilterGroup: Record "Item Filter Group";
+        _jsonItemFilterGroupArray: JsonArray;
+    begin
+        _ItemFilterGroup.SetRange("Item No.", _ItemNo);
+        _ItemFilterGroup.SetRange("Filter Group", _FilterGroup);
+        if _ItemFilterGroup.FindSet(false, false) then
+            repeat
+                _jsonItemFilterGroupArray.Add(_ItemFilterGroup."Filter Value RUS");
+            until _ItemFilterGroup.Next() = 0;
+        exit(_jsonItemFilterGroupArray);
+    end;
+
+    local procedure ItemFilterGroupExist(ItemNo: Code[20]): Boolean
+    var
+        ItemFilterGroup: Record "Item Filter Group";
+    begin
+        ItemFilterGroup.SetRange("Item No.", Item."No.");
+        exit(ItemFilterGroup.FindFirst());
     end;
 }

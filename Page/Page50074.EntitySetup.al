@@ -38,7 +38,11 @@ page 50074 "Entity Setup"
                     ApplicationArea = All;
 
                 }
+                field("Rows Number"; Rec."Rows Number")
+                {
+                    ApplicationArea = All;
 
+                }
             }
         }
     }

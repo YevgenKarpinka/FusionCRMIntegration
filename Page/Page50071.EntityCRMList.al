@@ -73,6 +73,11 @@ page 50071 "Entity CRM List"
                     ApplicationArea = All;
 
                 }
+                field(Rank; Rec.Rank)
+                {
+                    ApplicationArea = All;
+
+                }
             }
         }
     }

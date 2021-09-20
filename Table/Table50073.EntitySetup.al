@@ -36,6 +36,12 @@ table 50073 "Entity Setup"
             CaptionML = ENU = 'Request To File',
                         RUS = 'Запрос в файл';
         }
+        field(6; "Rows Number"; Integer)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'Rows Number',
+                        RUS = 'Количество строк';
+        }
     }
 
     keys

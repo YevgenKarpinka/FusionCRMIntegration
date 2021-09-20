@@ -81,6 +81,12 @@ table 50071 "Entity CRM"
                         RUS = 'Открытый счёт';
             DataClassification = CustomerContent;
         }
+        field(13; Rank; Integer)
+        {
+            CaptionML = ENU = 'Rank',
+                        RUS = 'Приоритет';
+            DataClassification = CustomerContent;
+        }
     }
 
     keys
