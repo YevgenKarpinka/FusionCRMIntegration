@@ -8,6 +8,7 @@ codeunit 50070 "Integration CRM"
     end;
 
     var
+        SRSetup: Record "Sales & Receivables Setup";
         Window: Dialog;
         PackageBoxMgt: Codeunit "Package Box Mgt.";
         ShipStationSetup: Record "ShipStation Setup";
@@ -100,7 +101,7 @@ codeunit 50070 "Integration CRM"
             // create requestBody
             CreateRequestBodyForPostPayment(PaymentCRM, requestBody);
 
-            if isSaveRequestBodyToFile(lblPayment) then begin
+            if isSaveRequestBodyToFile(lblPayment) and GuiAllowed then begin
                 // while testing
                 SaveStreamToFile(requestBody, StrSubstNo(lblFileName, lblPayment));
                 exit;
@@ -190,16 +191,15 @@ codeunit 50070 "Integration CRM"
                     CreateRequestBodyForPostInvoice(requestBody);
                 lblPackage:
                     CreateRequestBodyForPostPackage(requestBody);
-                // to do
-                // lblUpdateOrder:
-                // CreateRequestBodyForPostUpdateOrder(requestBody);
+                lblUpdateOrder:
+                    CreateRequestBodyForPostUpdateOrder(requestBody);
                 lblOrderStatus:
                     CreateRequestBodyForPostOrderStatus(requestBody);
                 lblInvoiceStatus:
                     CreateRequestBodyForPostInvoiceStatus(requestBody);
             end;
 
-            if isSaveRequestBodyToFile(entityType) then begin
+            if isSaveRequestBodyToFile(entityType) and GuiAllowed then begin
                 // while testing
                 SaveStreamToFile(requestBody, StrSubstNo(lblFileName, entityType));
                 exit(true);
@@ -744,6 +744,132 @@ codeunit 50070 "Integration CRM"
         exit(locJsonArray);
     end;
 
+    local procedure CreateRequestBodyForPostUpdateOrder(var requestBody: Text)
+    var
+        bodyArray: JsonArray;
+        EntitySetup: Record "Entity Setup";
+        locSalesHeader: Record "Sales Header";
+        locSalesHeaderArchive: Record "Sales Header Archive";
+    begin
+        EntitySetup.Get(lblUpdateOrder);
+        if EntitySetup."Rows Number" = 0 then
+            EntitySetup."Rows Number" += 1;
+        GetSRSetup();
+
+        repeat
+            RecNo += 1;
+            if locSalesHeader.Get(locSalesHeader."Document Type"::Order, EntityCRM.Key1)
+            and not IsNullGuid(locSalesHeader."CRM ID") then begin
+                Clear(Body);
+                locSalesHeader.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
+
+                Body.Add('bcid', Guid2APIStr(locSalesHeader.SystemId));
+                Body.Add('sales_order_no', locSalesHeader."No.");
+                Body.Add('crm_order_no', locSalesHeader."External Document No.");
+                if Customer.Get(locSalesHeader."Sell-to Customer No.") then
+                    Body.Add('customerid', Guid2APIStr(Customer.SystemId));
+                Body.Add('duedate', Date2APIStr(locSalesHeader."Due Date"));
+                Body.Add('orderdate', Date2APIStr(locSalesHeader."Order Date"));
+                Body.Add('requestdelivery', Date2APIStr(locSalesHeader."Requested Delivery Date"));
+                Body.Add('documentdate', Date2APIStr(locSalesHeader."Document Date"));
+                Body.Add('postingdate', Date2APIStr(locSalesHeader."Posting Date"));
+                Body.Add('shipmentdate', Date2APIStr(locSalesHeader."Shipment Date"));
+                Body.Add('prepayment_duedate', Date2APIStr(locSalesHeader."Prepayment Due Date"));
+                Body.Add('promiseddelivery', Date2APIStr(locSalesHeader."Promised Delivery Date"));
+                if InvoiceDiscountAllowed(locSalesHeader."No.") then
+                    Body.Add('order_discount_amount', locSalesHeader."Invoice Discount Amount");
+                Body.Add('order_vat_base_amount', locSalesHeader.Amount);
+                Body.Add('order_amount_incl_vat', locSalesHeader."Amount Including VAT");
+                Body.Add('lines', GetLinesByOrder(locSalesHeader."No."));
+
+                bodyArray.Add(Body);
+            end else begin
+                if SRSetup."Archive Orders" then begin
+                    locSalesHeaderArchive.SetCurrentKey("No.", "Version No.");
+                    locSalesHeaderArchive.SetRange("Document Type", locSalesHeaderArchive."Document Type"::Order);
+                    locSalesHeaderArchive.SetRange("No.", EntityCRM.Key1);
+                    if locSalesHeaderArchive.FindLast()
+                    // and not IsNullGuid(locSalesHeaderArchive."CRM ID") 
+                    then begin
+                        Clear(Body);
+                        locSalesHeader.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
+
+                        Body.Add('bcid', Guid2APIStr(locSalesHeader.SystemId));
+                        Body.Add('sales_order_no', locSalesHeader."No.");
+                        Body.Add('crm_order_no', locSalesHeader."External Document No.");
+                        if Customer.Get(locSalesHeader."Sell-to Customer No.") then
+                            Body.Add('customerid', Guid2APIStr(Customer.SystemId));
+                        Body.Add('duedate', Date2APIStr(locSalesHeader."Due Date"));
+                        Body.Add('orderdate', Date2APIStr(locSalesHeader."Order Date"));
+                        Body.Add('requestdelivery', Date2APIStr(locSalesHeader."Requested Delivery Date"));
+                        Body.Add('documentdate', Date2APIStr(locSalesHeader."Document Date"));
+                        Body.Add('postingdate', Date2APIStr(locSalesHeader."Posting Date"));
+                        Body.Add('shipmentdate', Date2APIStr(locSalesHeader."Shipment Date"));
+                        Body.Add('prepayment_duedate', Date2APIStr(locSalesHeader."Prepayment Due Date"));
+                        Body.Add('promiseddelivery', Date2APIStr(locSalesHeader."Promised Delivery Date"));
+                        if InvoiceDiscountAllowed(locSalesHeader."No.") then
+                            Body.Add('order_discount_amount', locSalesHeader."Invoice Discount Amount");
+                        Body.Add('order_vat_base_amount', locSalesHeader.Amount);
+                        Body.Add('order_amount_incl_vat', locSalesHeader."Amount Including VAT");
+                        Body.Add('lines', GetLinesByOrder(locSalesHeader."No."));
+
+                        bodyArray.Add(Body);
+                    end;
+                end;
+            end;
+            AfterAddEntityToRequestBody();
+        until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
+
+        bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure GetLinesByOrder(OrderNo: Code[20]): JsonArray
+    var
+        locJsonObject: JsonObject;
+        locJsonArray: JsonArray;
+        locSalesLine: Record "Sales Line";
+        locItemUoM: Record "Item Unit of Measure";
+    begin
+        locSalesLine.SetCurrentKey("Document Type", "Document No.", Type, Quantity);
+        locSalesLine.SetRange(locSalesLine."Document Type", locSalesLine."Document Type"::Order);
+        locSalesLine.SetRange("Document No.", OrderNo);
+        locSalesLine.SetRange(Type, locSalesLine.Type::Item);
+        locSalesLine.SetFilter(Quantity, '<>%1', 0);
+        if not locSalesLine.FindSet() then exit;
+
+        repeat
+            Clear(locJsonObject);
+
+            locJsonObject.Add('bcid', Guid2APIStr(locSalesLine.SystemId));
+            locJsonObject.Add('line_no', locSalesLine."Line No.");
+            locJsonObject.Add('item_no', locSalesLine."No.");
+            if locItemUoM.Get(locSalesLine."No.", locSalesLine."Unit of Measure Code") then
+                locJsonObject.Add('uom_id', Guid2APIStr(locItemUoM.SystemId));
+            locJsonObject.Add('quantity', locSalesLine.Quantity);
+            locJsonObject.Add('unit_price', locSalesLine."Unit Price");
+            locJsonObject.Add('vat_base_amount', locSalesLine."VAT Base Amount");
+            locJsonObject.Add('amount_incl_vat', locSalesLine."Amount Including VAT");
+            if locSalesLine."Allow Line Disc." then
+                locJsonObject.Add('line_discount_amount', locSalesLine."Line Discount Amount");
+
+            locJsonArray.Add(locJsonObject);
+        until locSalesLine.Next() = 0;
+
+        exit(locJsonArray);
+    end;
+
+    local procedure InvoiceDiscountAllowed(OrderNo: Code[20]): Boolean
+    var
+        locSalesLine: Record "Sales Line";
+    begin
+        locSalesLine.SetCurrentKey("Document Type", "Document No.", Type, Quantity);
+        locSalesLine.SetRange(locSalesLine."Document Type", locSalesLine."Document Type"::Order);
+        locSalesLine.SetRange("Document No.", OrderNo);
+        locSalesLine.SetRange(Type, locSalesLine.Type::Item);
+        locSalesLine.SetFilter(Quantity, '<>%1', 0);
+        exit(locSalesLine.FindFirst() and locSalesLine."Allow Invoice Disc.");
+    end;
+
     local procedure CreateRequestBodyForPostOrderStatus(var requestBody: Text)
     var
         bodyArray: JsonArray;
@@ -878,6 +1004,8 @@ codeunit 50070 "Integration CRM"
         if SalesOrderFromCRM(SalesHeader."No.") then begin
             EntityCRMOnUpdateIdBeforeSend(lblOrderStatus, SalesHeader."No.", '', SalesHeader.SystemId);
             EntityCRMOnUpdateIdAfterSend(lblOrderStatus, SalesHeader."No.", '', SalesHeader."CRM ID", false);
+
+            EntityCRMOnUpdateIdBeforeSend(lblUpdateOrder, SalesHeader."No.", '', SalesHeader.SystemId);
         end;
     end;
 
@@ -1611,5 +1739,13 @@ codeunit 50070 "Integration CRM"
     begin
         ItemFilterGroup.SetRange("Item No.", Item."No.");
         exit(ItemFilterGroup.FindFirst());
+    end;
+
+    local procedure GetSRSetup()
+    begin
+        if not SRSetup.Get() then begin
+            SRSetup.Init();
+            SRSetup.Insert();
+        end;
     end;
 }

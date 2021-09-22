@@ -6,6 +6,7 @@
             "request": "launch",
             "type": "al",
             "environmentType": "Sandbox",
+            // "environmentName": "copyProd",
             "environmentName": "Test",
             "startupObjectId": 50070,
             "startupObjectType": "Page",

@@ -1,6 +1,6 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <PermissionSets>
-  <PermissionSet RoleID="FUSION INTEGRATION CRM" RoleName="Fusion Integration CRM">
+  <PermissionSet RoleID="INTEGRATION CRM" RoleName="Fusion Integration CRM">
     <Permission>
       <ObjectID>50070</ObjectID>
       <ObjectType>0</ObjectType>
