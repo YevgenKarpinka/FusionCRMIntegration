@@ -627,13 +627,16 @@ codeunit 50070 "Integration CRM"
             repeat
                 Clear(locJsonObject);
 
+                locJsonObject.Add('bcid', Guid2APIStr(locSIL.SystemId));
                 locJsonObject.Add('product', locSIL."No.");
-                locJsonObject.Add('price', boolTrue);
                 locJsonObject.Add('quantity', locSIL.Quantity);
-                locJsonObject.Add('discount_amount', locSIL."Line Discount Amount");
                 locJsonObject.Add('uom_id', Guid2APIStr(GetUoMIdByCode(locSIL."Unit of Measure Code")));
                 locJsonObject.Add('price_perunit', locSIL."Unit Price");
-                locJsonObject.Add('bcid', Guid2APIStr(locSIL.SystemId));
+                if locSIL."Allow Line Disc." then
+                    locJsonObject.Add('discount_amount', locSIL."Line Discount Amount");
+                if locSIL."Allow Invoice Disc." then
+                    locJsonObject.Add('inv_discount_amount', locSIL."Line Discount Amount");
+                locJsonObject.Add('price', boolTrue);
 
                 locJsonArray.Add(locJsonObject);
             until locSIL.Next() = 0;
@@ -754,33 +757,35 @@ codeunit 50070 "Integration CRM"
         EntitySetup.Get(lblUpdateOrder);
         if EntitySetup."Rows Number" = 0 then
             EntitySetup."Rows Number" += 1;
+
         GetSRSetup();
 
         repeat
             RecNo += 1;
-            if locSalesHeader.Get(locSalesHeader."Document Type"::Order, EntityCRM.Key1)
-            and not IsNullGuid(locSalesHeader."CRM ID") then begin
+            if locSalesHeader.Get(locSalesHeader."Document Type"::Order, EntityCRM.Key1) then begin
                 Clear(Body);
-                locSalesHeader.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
 
                 Body.Add('bcid', Guid2APIStr(locSalesHeader.SystemId));
                 Body.Add('sales_order_no', locSalesHeader."No.");
                 Body.Add('crm_order_no', locSalesHeader."External Document No.");
-                if Customer.Get(locSalesHeader."Sell-to Customer No.") then
-                    Body.Add('customerid', Guid2APIStr(Customer.SystemId));
+                Body.Add('customerid', locSalesHeader."Sell-to Customer No.");
                 Body.Add('duedate', Date2APIStr(locSalesHeader."Due Date"));
                 Body.Add('orderdate', Date2APIStr(locSalesHeader."Order Date"));
-                Body.Add('requestdelivery', Date2APIStr(locSalesHeader."Requested Delivery Date"));
+                if locSalesHeader."Requested Delivery Date" <> 0D then
+                    Body.Add('requestdelivery', Date2APIStr(locSalesHeader."Requested Delivery Date"));
                 Body.Add('documentdate', Date2APIStr(locSalesHeader."Document Date"));
                 Body.Add('postingdate', Date2APIStr(locSalesHeader."Posting Date"));
                 Body.Add('shipmentdate', Date2APIStr(locSalesHeader."Shipment Date"));
                 Body.Add('prepayment_duedate', Date2APIStr(locSalesHeader."Prepayment Due Date"));
-                Body.Add('promiseddelivery', Date2APIStr(locSalesHeader."Promised Delivery Date"));
-                if InvoiceDiscountAllowed(locSalesHeader."No.") then
-                    Body.Add('order_discount_amount', locSalesHeader."Invoice Discount Amount");
-                Body.Add('order_vat_base_amount', locSalesHeader.Amount);
-                Body.Add('order_amount_incl_vat', locSalesHeader."Amount Including VAT");
+                if locSalesHeader."Promised Delivery Date" <> 0D then
+                    Body.Add('promiseddelivery', Date2APIStr(locSalesHeader."Promised Delivery Date"));
                 Body.Add('lines', GetLinesByOrder(locSalesHeader."No."));
+
+                // locSalesHeader.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
+                // if InvoiceDiscountAllowed(locSalesHeader."No.") then
+                //     Body.Add('order_discount_amount', locSalesHeader."Invoice Discount Amount");
+                // Body.Add('order_vat_base_amount', locSalesHeader.Amount);
+                // Body.Add('order_amount_incl_vat', locSalesHeader."Amount Including VAT");
 
                 bodyArray.Add(Body);
             end else begin
@@ -788,30 +793,30 @@ codeunit 50070 "Integration CRM"
                     locSalesHeaderArchive.SetCurrentKey("No.", "Version No.");
                     locSalesHeaderArchive.SetRange("Document Type", locSalesHeaderArchive."Document Type"::Order);
                     locSalesHeaderArchive.SetRange("No.", EntityCRM.Key1);
-                    if locSalesHeaderArchive.FindLast()
-                    // and not IsNullGuid(locSalesHeaderArchive."CRM ID") 
-                    then begin
+                    if locSalesHeaderArchive.FindLast() then begin
                         Clear(Body);
-                        locSalesHeader.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
 
-                        Body.Add('bcid', Guid2APIStr(locSalesHeader.SystemId));
-                        Body.Add('sales_order_no', locSalesHeader."No.");
-                        Body.Add('crm_order_no', locSalesHeader."External Document No.");
-                        if Customer.Get(locSalesHeader."Sell-to Customer No.") then
-                            Body.Add('customerid', Guid2APIStr(Customer.SystemId));
-                        Body.Add('duedate', Date2APIStr(locSalesHeader."Due Date"));
-                        Body.Add('orderdate', Date2APIStr(locSalesHeader."Order Date"));
-                        Body.Add('requestdelivery', Date2APIStr(locSalesHeader."Requested Delivery Date"));
-                        Body.Add('documentdate', Date2APIStr(locSalesHeader."Document Date"));
-                        Body.Add('postingdate', Date2APIStr(locSalesHeader."Posting Date"));
-                        Body.Add('shipmentdate', Date2APIStr(locSalesHeader."Shipment Date"));
-                        Body.Add('prepayment_duedate', Date2APIStr(locSalesHeader."Prepayment Due Date"));
-                        Body.Add('promiseddelivery', Date2APIStr(locSalesHeader."Promised Delivery Date"));
-                        if InvoiceDiscountAllowed(locSalesHeader."No.") then
-                            Body.Add('order_discount_amount', locSalesHeader."Invoice Discount Amount");
-                        Body.Add('order_vat_base_amount', locSalesHeader.Amount);
-                        Body.Add('order_amount_incl_vat', locSalesHeader."Amount Including VAT");
-                        Body.Add('lines', GetLinesByOrder(locSalesHeader."No."));
+                        Body.Add('bcid', Guid2APIStr(locSalesHeaderArchive.SystemId));
+                        Body.Add('sales_order_no', locSalesHeaderArchive."No.");
+                        Body.Add('crm_order_no', locSalesHeaderArchive."External Document No.");
+                        Body.Add('customerid', locSalesHeaderArchive."Sell-to Customer No.");
+                        Body.Add('duedate', Date2APIStr(locSalesHeaderArchive."Due Date"));
+                        Body.Add('orderdate', Date2APIStr(locSalesHeaderArchive."Order Date"));
+                        if locSalesHeaderArchive."Requested Delivery Date" <> 0D then
+                            Body.Add('requestdelivery', Date2APIStr(locSalesHeaderArchive."Requested Delivery Date"));
+                        Body.Add('documentdate', Date2APIStr(locSalesHeaderArchive."Document Date"));
+                        Body.Add('postingdate', Date2APIStr(locSalesHeaderArchive."Posting Date"));
+                        Body.Add('shipmentdate', Date2APIStr(locSalesHeaderArchive."Shipment Date"));
+                        Body.Add('prepayment_duedate', Date2APIStr(locSalesHeaderArchive."Prepayment Due Date"));
+                        if locSalesHeaderArchive."Promised Delivery Date" <> 0D then
+                            Body.Add('promiseddelivery', Date2APIStr(locSalesHeaderArchive."Promised Delivery Date"));
+                        Body.Add('lines', GetLinesByOrder(locSalesHeaderArchive."No."));
+
+                        // locSalesHeaderArchive.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
+                        // if InvoiceDiscountAllowed(locSalesHeaderArchive."No.") then
+                        //     Body.Add('order_discount_amount', locSalesHeaderArchive."Invoice Discount Amount");
+                        // Body.Add('order_vat_base_amount', locSalesHeaderArchive.Amount);
+                        // Body.Add('order_amount_incl_vat', locSalesHeaderArchive."Amount Including VAT");
 
                         bodyArray.Add(Body);
                     end;
@@ -828,34 +833,88 @@ codeunit 50070 "Integration CRM"
         locJsonObject: JsonObject;
         locJsonArray: JsonArray;
         locSalesLine: Record "Sales Line";
+        locSalesLineArchive: Record "Sales Line Archive";
         locItemUoM: Record "Item Unit of Measure";
+        locUoM: Record "Unit of Measure";
     begin
-        locSalesLine.SetCurrentKey("Document Type", "Document No.", Type, Quantity);
+        locSalesLine.SetCurrentKey("Document Type", "Document No.", "Line No.", Type, Quantity);
         locSalesLine.SetRange(locSalesLine."Document Type", locSalesLine."Document Type"::Order);
         locSalesLine.SetRange("Document No.", OrderNo);
         locSalesLine.SetRange(Type, locSalesLine.Type::Item);
         locSalesLine.SetFilter(Quantity, '<>%1', 0);
-        if not locSalesLine.FindSet() then exit;
+        if locSalesLine.FindSet() then begin
+            repeat
+                Clear(locJsonObject);
 
-        repeat
-            Clear(locJsonObject);
+                locJsonObject.Add('bcid', Guid2APIStr(locSalesLine.SystemId));
+                locJsonObject.Add('line_no', locSalesLine."Line No.");
+                locJsonObject.Add('item_no', locSalesLine."No.");
 
-            locJsonObject.Add('bcid', Guid2APIStr(locSalesLine.SystemId));
-            locJsonObject.Add('line_no', locSalesLine."Line No.");
-            locJsonObject.Add('item_no', locSalesLine."No.");
-            if locItemUoM.Get(locSalesLine."No.", locSalesLine."Unit of Measure Code") then
-                locJsonObject.Add('uom_id', Guid2APIStr(locItemUoM.SystemId));
-            locJsonObject.Add('quantity', locSalesLine.Quantity);
-            locJsonObject.Add('unit_price', locSalesLine."Unit Price");
-            locJsonObject.Add('vat_base_amount', locSalesLine."VAT Base Amount");
-            locJsonObject.Add('amount_incl_vat', locSalesLine."Amount Including VAT");
-            if locSalesLine."Allow Line Disc." then
-                locJsonObject.Add('line_discount_amount', locSalesLine."Line Discount Amount");
+                // locItemUoM.Get(locSalesLine."No.", locSalesLine."Unit of Measure Code");
+                // locJsonObject.Add('uom_id', Guid2APIStr(locItemUoM.SystemId));
+                locUoM.Get(locSalesLine."Unit of Measure Code");
+                locJsonObject.Add('uom_id', Guid2APIStr(locUoM.SystemId));
 
-            locJsonArray.Add(locJsonObject);
-        until locSalesLine.Next() = 0;
+                locJsonObject.Add('quantity', locSalesLine.Quantity);
+                locJsonObject.Add('unit_price', locSalesLine."Unit Price");
+                locJsonObject.Add('vat_base_amount', locSalesLine."VAT Base Amount");
+                locJsonObject.Add('amount_incl_vat', locSalesLine."Amount Including VAT");
+                if locSalesLine."Allow Line Disc." then
+                    locJsonObject.Add('line_discount_amount', locSalesLine."Line Discount Amount");
+                if locSalesLine."Allow Invoice Disc." then
+                    locJsonObject.Add('inv_discount_amount', locSalesLine."Inv. Discount Amount");
+
+                locJsonArray.Add(locJsonObject);
+            until locSalesLine.Next() = 0;
+        end else begin
+            if SRSetup."Archive Orders" then begin
+                locSalesLineArchive.SetCurrentKey("Document Type", "Document No.", "Line No.", Type, Quantity, "Version No.");
+                locSalesLineArchive.SetRange(locSalesLineArchive."Document Type", locSalesLineArchive."Document Type"::Order);
+                locSalesLineArchive.SetRange("Document No.", OrderNo);
+                locSalesLineArchive.SetRange(Type, locSalesLineArchive.Type::Item);
+                locSalesLineArchive.SetFilter(Quantity, '<>%1', 0);
+                locSalesLineArchive.SetRange("Version No.", GetVersionNo(OrderNo));
+                if locSalesLineArchive.FindSet() then begin
+                    repeat
+                        Clear(locJsonObject);
+
+                        locJsonObject.Add('bcid', Guid2APIStr(locSalesLineArchive.SystemId));
+                        locJsonObject.Add('line_no', locSalesLineArchive."Line No.");
+                        locJsonObject.Add('item_no', locSalesLineArchive."No.");
+
+                        // locItemUoM.Get(locSalesLineArchive."No.", locSalesLineArchive."Unit of Measure Code");
+                        // locJsonObject.Add('uom_id', Guid2APIStr(locItemUoM.SystemId));
+                        locUoM.Get(locSalesLineArchive."Unit of Measure Code");
+                        locJsonObject.Add('uom_id', Guid2APIStr(locUoM.SystemId));
+
+                        locJsonObject.Add('quantity', locSalesLineArchive.Quantity);
+                        locJsonObject.Add('unit_price', locSalesLineArchive."Unit Price");
+                        locJsonObject.Add('vat_base_amount', locSalesLineArchive."VAT Base Amount");
+                        locJsonObject.Add('amount_incl_vat', locSalesLineArchive."Amount Including VAT");
+                        if locSalesLineArchive."Allow Line Disc." then
+                            locJsonObject.Add('line_discount_amount', locSalesLineArchive."Line Discount Amount");
+                        if locSalesLineArchive."Allow Invoice Disc." then
+                            locJsonObject.Add('inv_discount_amount', locSalesLineArchive."Inv. Discount Amount");
+
+                        locJsonArray.Add(locJsonObject);
+                    until locSalesLineArchive.Next() = 0;
+                end;
+            end;
+        end;
 
         exit(locJsonArray);
+    end;
+
+
+    local procedure GetVersionNo(OrderNo: Code[20]): Integer
+    var
+        locSalesHeaderArchive: Record "Sales Header Archive";
+    begin
+        locSalesHeaderArchive.SetCurrentKey("Document Type", "No.", "Version No.");
+        locSalesHeaderArchive.SetRange("Document Type", locSalesHeaderArchive."Document Type"::Order);
+        locSalesHeaderArchive.SetRange("No.", OrderNo);
+        locSalesHeaderArchive.FindLast();
+        exit(locSalesHeaderArchive."Version No.");
     end;
 
     local procedure InvoiceDiscountAllowed(OrderNo: Code[20]): Boolean
