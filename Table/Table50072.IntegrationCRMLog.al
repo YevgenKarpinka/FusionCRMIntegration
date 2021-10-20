@@ -142,32 +142,32 @@ table 50072 "Integration CRM Log"
         locResponse: Text;
         locRequest: Text;
     begin
-        jaResponse.ReadFrom(_Response);
-        jaRequest.ReadFrom(_Request);
-        foreach jtResponse in jaResponse do begin
-            isError := IntegrtionCRM.GetJSToken(jtResponse.AsObject(), 'error').AsValue().AsBoolean();
-            jtResponse.WriteTo(locResponse);
+        if jaRequest.ReadFrom(_Request) and jaResponse.ReadFrom(_Response) then begin
+            foreach jtResponse in jaResponse do begin
+                isError := IntegrtionCRM.GetJSToken(jtResponse.AsObject(), 'error').AsValue().AsBoolean();
 
-            jaRequest.Get(jaResponse.IndexOf(jtResponse), jtRequest);
-            jtRequest.WriteTo(locRequest);
+                jtResponse.WriteTo(locResponse);
 
-            LastEntryNo := GetLastEntryNo();
-            Init();
-            "Entry No." := LastEntryNo + 1;
-            "Operation Date" := CurrentDateTime;
-            "Source Operation" := Source;
-            Autorization := CopyStr(_Autorization, 1, MaxStrLen(Autorization));
-            "Rest Method" := RestMethod;
-            URL := _URL;
-            Success := not isError;
-            "Company Name" := CompanyName;
-            "User Id" := UserId;
-            Insert();
-            SetRequest(locRequest);
-            SetResponse(locResponse);
+                jaRequest.Get(jaResponse.IndexOf(jtResponse), jtRequest);
+                jtRequest.WriteTo(locRequest);
 
+                LastEntryNo := GetLastEntryNo();
+                Init();
+                "Entry No." := LastEntryNo + 1;
+                "Operation Date" := CurrentDateTime;
+                "Source Operation" := Source;
+                Autorization := CopyStr(_Autorization, 1, MaxStrLen(Autorization));
+                "Rest Method" := RestMethod;
+                URL := _URL;
+                Success := not isError;
+                "Company Name" := CompanyName;
+                "User Id" := UserId;
+                Insert();
+                SetRequest(locRequest);
+                SetResponse(locResponse);
+            end;
+            Commit();
         end;
-        Commit();
     end;
 
     local procedure GetLastEntryNo(): Integer
@@ -186,13 +186,11 @@ table 50072 "Integration CRM Log"
             if not Confirm(ConfirmDeletingEntriesQst) then
                 exit;
         Window.Open(DeletingMsg);
-        // SetRange(Status, Status::"In Process");
         IF DaysOld > 0 THEN
             SetFilter("Operation Date", '<=%1', CreateDateTime(Today - DaysOld, Time));
         DeleteAll();
         Window.Close;
         SetRange("Operation Date");
-        // SetRange(Status);
         Message(DeletedMsg);
     end;
 }

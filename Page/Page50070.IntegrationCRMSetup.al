@@ -13,6 +13,11 @@ page 50070 "Integration CRM Setup"
         {
             repeater(RepeaterName)
             {
+                field(Production; Rec.Production)
+                {
+                    ApplicationArea = All;
+
+                }
                 field(Code; Rec.Code)
                 {
                     ApplicationArea = All;

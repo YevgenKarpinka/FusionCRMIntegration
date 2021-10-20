@@ -22,8 +22,14 @@ table 50070 "Integration CRM Setup"
         field(3; Param; Text[100])
         {
             DataClassification = CustomerContent;
-            CaptionML = ENU = 'Param',
+            CaptionML = ENU = 'Parameters',
                         RUS = 'Параметр';
+        }
+        field(4; Production; Boolean)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'Production',
+                        RUS = 'Прод.';
         }
     }
 

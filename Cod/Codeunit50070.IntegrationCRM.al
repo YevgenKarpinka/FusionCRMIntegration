@@ -133,16 +133,21 @@ codeunit 50070 "Integration CRM"
     var
         ContentType: Label 'Content-Type';
         ContentTypeValue: Label 'application/json';
-        // EnvironmentType: Label 'Environment';
-        // EnvironmentTypeValue: Label 'Production';
+        EnvironmentType: Label 'Environment';
+        EnvironmentTypeProdValue: Label 'production';
+        EnvironmentTypeSandboxValue: Label 'sandbox';
         Client: HttpClient;
         RequestMessage: HttpRequestMessage;
         ResponseMessage: HttpResponseMessage;
         RequestHeader: HttpHeaders;
         requestURL: Text;
     begin
-        requestURL := GetURLForPostEntity(entityType);
-        if StrLen(DelChr(requestURL, '', ' ')) = 0 then exit(false);
+        if GetIntegrationCRMSetupByEntity(entityType) then begin
+            requestURL := StrSubstNo(lblSubStrURL, IntegrationCRMSetup.URL, IntegrationCRMSetup.Param);
+            if StrLen(DelChr(requestURL, '', ' ')) = 0 then exit(false);
+        end else
+            exit(false);
+
 
         RequestMessage.Method := requestMethod;
         RequestMessage.SetRequestUri(requestURL);
@@ -155,8 +160,10 @@ codeunit 50070 "Integration CRM"
                     if RequestHeader.Contains(ContentType) then RequestHeader.Remove(ContentType);
                     RequestHeader.Add(ContentType, ContentTypeValue);
                     // to do split environment
-                    // if not GetResourceProductionNotAllowed() then
-                    //     RequestHeader.Add(EnvironmentType, EnvironmentTypeValue);
+                    if IntegrationCRMSetup.Production then
+                        RequestHeader.Add(EnvironmentType, EnvironmentTypeProdValue)
+                    else
+                        RequestHeader.Add(EnvironmentType, EnvironmentTypeSandboxValue);
                 end;
         end;
 
@@ -167,6 +174,11 @@ codeunit 50070 "Integration CRM"
         IntegrationCRMLog.InsertOperationToLog('CUSTOM_CRM_API', requestMethod, requestURL, '', requestBody, responseBody);
 
         exit(ResponseMessage.IsSuccessStatusCode);
+    end;
+
+    local procedure GetIntegrationCRMSetupByEntity(entityType: Code[30]): Boolean
+    begin
+        exit(IntegrationCRMSetup.Get(entityType));
     end;
 
     procedure OnPostEntity(entityType: Code[30]): Boolean
@@ -263,40 +275,59 @@ codeunit 50070 "Integration CRM"
         jaEntity: JsonArray;
         jtEntity: JsonToken;
     begin
-        jaEntity.ReadFrom(responseBody);
-        foreach jtEntity in jaEntity do begin
-            isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
-            if not isError then begin
-                Clear(idCRM);
-                PaymentNo := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
-                InvoiceNo := GetJSToken(jtEntity.AsObject(), 'bcInvoice').AsValue().AsText();
-                EntryApply := GetJSToken(jtEntity.AsObject(), 'bcApply').AsValue().AsBoolean();
-                if EntryApply then
-                    idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
-                idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-                PaymentCRMOnUpdateIdAfterSend(PaymentNo, InvoiceNo, EntryApply, idCRM, true);
+        if jaEntity.ReadFrom(responseBody) then
+            foreach jtEntity in jaEntity do begin
+                isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
+                if not isError then begin
+                    Clear(idCRM);
+                    PaymentNo := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                    InvoiceNo := GetJSToken(jtEntity.AsObject(), 'bcInvoice').AsValue().AsText();
+                    EntryApply := GetJSToken(jtEntity.AsObject(), 'bcApply').AsValue().AsBoolean();
+                    if EntryApply then
+                        idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
+                    idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
+                    PaymentCRMOnUpdateIdAfterSend(PaymentNo, InvoiceNo, EntryApply, idCRM, true);
+                end;
             end;
-        end;
     end;
 
     local procedure UpdateEntityIDAndStatus(entityType: Code[30]; responseBody: Text);
     var
         isError: Boolean;
+        bcNumber: Text[50];
         Key1: Code[20];
         idCRM: Guid;
         idBC: Guid;
         jaEntity: JsonArray;
         jtEntity: JsonToken;
     begin
-        jaEntity.ReadFrom(responseBody);
-        foreach jtEntity in jaEntity do begin
-            isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
-            if not isError then begin
-                Key1 := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
-                idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
-                idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-                EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, true);
+        if jaEntity.ReadFrom(responseBody) then
+            foreach jtEntity in jaEntity do begin
+                isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
+                if not isError then begin
+                    bcNumber := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                    if StrLen(bcNumber) > MaxStrLen(Key1) then
+                        Key1 := GetUoMCodeBySystemId(entityType, bcNumber)
+                    else
+                        Key1 := bcNumber;
+                    idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
+                    idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
+                    EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, true);
+                end;
             end;
+    end;
+
+    procedure GetUoMCodeBySystemId(xentityType: Code[30]; xGuid: Guid): Code[20]
+    var
+        locUoM: Record "Unit of Measure";
+    begin
+        case xentityType of
+            lblUoM:
+                begin
+                    locUoM.SetFilter(SystemId, xGuid);
+                    locUoM.FindFirst();
+                    exit(locUoM.Code);
+                end;
         end;
     end;
 
@@ -635,7 +666,7 @@ codeunit 50070 "Integration CRM"
                 if locSIL."Allow Line Disc." then
                     locJsonObject.Add('discount_amount', locSIL."Line Discount Amount");
                 if locSIL."Allow Invoice Disc." then
-                    locJsonObject.Add('inv_discount_amount', locSIL."Line Discount Amount");
+                    locJsonObject.Add('inv_discount_amount', locSIL."Inv. Discount Amount");
                 locJsonObject.Add('price', boolTrue);
 
                 locJsonArray.Add(locJsonObject);
@@ -769,23 +800,23 @@ codeunit 50070 "Integration CRM"
                 Body.Add('sales_order_no', locSalesHeader."No.");
                 Body.Add('crm_order_no', locSalesHeader."External Document No.");
                 Body.Add('customerid', locSalesHeader."Sell-to Customer No.");
-                Body.Add('duedate', Date2APIStr(locSalesHeader."Due Date"));
-                Body.Add('orderdate', Date2APIStr(locSalesHeader."Order Date"));
+                if locSalesHeader."Due Date" <> 0D then
+                    Body.Add('duedate', Date2APIStr(locSalesHeader."Due Date"));
+                if locSalesHeader."Order Date" <> 0D then
+                    Body.Add('orderdate', Date2APIStr(locSalesHeader."Order Date"));
                 if locSalesHeader."Requested Delivery Date" <> 0D then
                     Body.Add('requestdelivery', Date2APIStr(locSalesHeader."Requested Delivery Date"));
-                Body.Add('documentdate', Date2APIStr(locSalesHeader."Document Date"));
-                Body.Add('postingdate', Date2APIStr(locSalesHeader."Posting Date"));
-                Body.Add('shipmentdate', Date2APIStr(locSalesHeader."Shipment Date"));
-                Body.Add('prepayment_duedate', Date2APIStr(locSalesHeader."Prepayment Due Date"));
+                if locSalesHeader."Document Date" <> 0D then
+                    Body.Add('documentdate', Date2APIStr(locSalesHeader."Document Date"));
+                if locSalesHeader."Posting Date" <> 0D then
+                    Body.Add('postingdate', Date2APIStr(locSalesHeader."Posting Date"));
+                if locSalesHeader."Shipment Date" <> 0D then
+                    Body.Add('shipmentdate', Date2APIStr(locSalesHeader."Shipment Date"));
+                if locSalesHeader."Prepayment Due Date" <> 0D then
+                    Body.Add('prepayment_duedate', Date2APIStr(locSalesHeader."Prepayment Due Date"));
                 if locSalesHeader."Promised Delivery Date" <> 0D then
                     Body.Add('promiseddelivery', Date2APIStr(locSalesHeader."Promised Delivery Date"));
                 Body.Add('lines', GetLinesByOrder(locSalesHeader."No."));
-
-                // locSalesHeader.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
-                // if InvoiceDiscountAllowed(locSalesHeader."No.") then
-                //     Body.Add('order_discount_amount', locSalesHeader."Invoice Discount Amount");
-                // Body.Add('order_vat_base_amount', locSalesHeader.Amount);
-                // Body.Add('order_amount_incl_vat', locSalesHeader."Amount Including VAT");
 
                 bodyArray.Add(Body);
             end else begin
@@ -800,23 +831,23 @@ codeunit 50070 "Integration CRM"
                         Body.Add('sales_order_no', locSalesHeaderArchive."No.");
                         Body.Add('crm_order_no', locSalesHeaderArchive."External Document No.");
                         Body.Add('customerid', locSalesHeaderArchive."Sell-to Customer No.");
-                        Body.Add('duedate', Date2APIStr(locSalesHeaderArchive."Due Date"));
-                        Body.Add('orderdate', Date2APIStr(locSalesHeaderArchive."Order Date"));
+                        if locSalesHeaderArchive."Due Date" <> 0D then
+                            Body.Add('duedate', Date2APIStr(locSalesHeaderArchive."Due Date"));
+                        if locSalesHeaderArchive."Order Date" <> 0D then
+                            Body.Add('orderdate', Date2APIStr(locSalesHeaderArchive."Order Date"));
                         if locSalesHeaderArchive."Requested Delivery Date" <> 0D then
                             Body.Add('requestdelivery', Date2APIStr(locSalesHeaderArchive."Requested Delivery Date"));
-                        Body.Add('documentdate', Date2APIStr(locSalesHeaderArchive."Document Date"));
-                        Body.Add('postingdate', Date2APIStr(locSalesHeaderArchive."Posting Date"));
-                        Body.Add('shipmentdate', Date2APIStr(locSalesHeaderArchive."Shipment Date"));
-                        Body.Add('prepayment_duedate', Date2APIStr(locSalesHeaderArchive."Prepayment Due Date"));
+                        if locSalesHeaderArchive."Document Date" <> 0D then
+                            Body.Add('documentdate', Date2APIStr(locSalesHeaderArchive."Document Date"));
+                        if locSalesHeaderArchive."Posting Date" <> 0D then
+                            Body.Add('postingdate', Date2APIStr(locSalesHeaderArchive."Posting Date"));
+                        if locSalesHeaderArchive."Shipment Date" <> 0D then
+                            Body.Add('shipmentdate', Date2APIStr(locSalesHeaderArchive."Shipment Date"));
+                        if locSalesHeaderArchive."Prepayment Due Date" <> 0D then
+                            Body.Add('prepayment_duedate', Date2APIStr(locSalesHeaderArchive."Prepayment Due Date"));
                         if locSalesHeaderArchive."Promised Delivery Date" <> 0D then
                             Body.Add('promiseddelivery', Date2APIStr(locSalesHeaderArchive."Promised Delivery Date"));
                         Body.Add('lines', GetLinesByOrder(locSalesHeaderArchive."No."));
-
-                        // locSalesHeaderArchive.CalcFields(Amount, "Amount Including VAT", "Invoice Discount Amount");
-                        // if InvoiceDiscountAllowed(locSalesHeaderArchive."No.") then
-                        //     Body.Add('order_discount_amount', locSalesHeaderArchive."Invoice Discount Amount");
-                        // Body.Add('order_vat_base_amount', locSalesHeaderArchive.Amount);
-                        // Body.Add('order_amount_incl_vat', locSalesHeaderArchive."Amount Including VAT");
 
                         bodyArray.Add(Body);
                     end;
@@ -1134,7 +1165,23 @@ codeunit 50070 "Integration CRM"
         EntityCRMOnUpdateIdBeforeSend(lblCustomer, Rec."No.", '', Rec.SystemId);
     end;
 
-    [EventSubscriber(ObjectType::Table, 112, 'OnAfterInsertEvent', '', false, false)]
+    [EventSubscriber(ObjectType::Codeunit, 80, 'OnAfterPostSalesDoc', '', false, false)]
+    local procedure SalesOrderOnAfterPostEvent(var SalesHeader: Record "Sales Header"; SalesInvHdrNo: Code[20])
+    var
+        locSalesInvHeader: Record "Sales Invoice Header";
+        locPackageHeader: Record "Package Header";
+    begin
+        if SalesOrderFromCRM(SalesHeader."No.") and SalesHeader.Invoice and locSalesInvHeader.Get(SalesInvHdrNo) then begin
+            EntityCRMOnUpdateIdBeforeSend(lblInvoice, SalesInvHdrNo, '', locSalesInvHeader.SystemId);
+
+            locPackageHeader.SetRange("Sales Order No.", SalesHeader."No.");
+            if locPackageHeader.FindFirst() then
+                EntityCRMOnUpdateIdBeforeSend(lblPackage, locPackageHeader."No.", '', locPackageHeader.SystemId);
+
+        end;
+    end;
+
+    // [EventSubscriber(ObjectType::Table, 112, 'OnAfterInsertEvent', '', false, false)]
     local procedure SalesInvOnAfterInsertEvent(var Rec: Record "Sales Invoice Header")
     var
         locPackageHeader: Record "Package Header";
@@ -1149,7 +1196,7 @@ codeunit 50070 "Integration CRM"
         end;
     end;
 
-    [EventSubscriber(ObjectType::Table, 112, 'OnAfterModifyEvent', '', false, false)]
+    // [EventSubscriber(ObjectType::Table, 112, 'OnAfterModifyEvent', '', false, false)]
     local procedure SalesInvOnAfterModifyEvent(var Rec: Record "Sales Invoice Header")
     var
         locPackageHeader: Record "Package Header";
@@ -1449,6 +1496,7 @@ codeunit 50070 "Integration CRM"
     end;
 
     procedure GetJSToken(_JSONObject: JsonObject; TokenKey: Text) _JSONToken: JsonToken
+
     begin
         if not _JSONObject.Get(TokenKey, _JSONToken) then
             Error('Could not find a token with key %1', TokenKey);
