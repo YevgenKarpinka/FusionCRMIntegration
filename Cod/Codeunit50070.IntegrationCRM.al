@@ -2,6 +2,8 @@ codeunit 50070 "Integration CRM"
 {
     trigger OnRun()
     begin
+        if not CheckEnableIntegrationCRM() then exit;
+
         CodeForEntity();
         // Send payment
         CodeForPayment();
@@ -68,10 +70,15 @@ codeunit 50070 "Integration CRM"
         EntitySetup.SetCurrentKey(Rank);
         if EntitySetup.FindSet() then
             repeat
+
                 EntityCRM.Reset();
                 EntityCRM.SetCurrentKey(Code, Rank, "Modify In CRM");
                 EntityCRM.SetRange(Code, EntitySetup.Code);
                 EntityCRM.SetRange("Modify In CRM", false);
+
+                InitEntity();
+
+                EntityCRM.SetFilter("No. of Attempts to Run", '<=%1', EntitySetup."Maximum No. of Attempts to Run");
                 if EntityCRM.FindSet() then
                     OnPostEntity(EntitySetup.Code);
             until EntitySetup.Next() = 0;
@@ -80,11 +87,17 @@ codeunit 50070 "Integration CRM"
     local procedure CodeForPayment()
     var
         PaymentCRM: Record "Payment CRM";
+        locEntitySetup: Record "Entity Setup";
     begin
         PaymentCRM.Reset();
         PaymentCRM.SetCurrentKey(Apply, "Modify In CRM");
         PaymentCRM.SetAscending(Apply, false);
         PaymentCRM.SetRange("Modify In CRM", false);
+
+        PaymentCRM.ModifyAll("No. of Attempts to Run", 0);
+
+        locEntitySetup.Get(lblPayment);
+        PaymentCRM.SetFilter("No. of Attempts to Run", '<=%1', locEntitySetup."Maximum No. of Attempts to Run");
         if PaymentCRM.FindSet() then
             // repeat
                 OnPostPayment(PaymentCRM);
@@ -229,7 +242,6 @@ codeunit 50070 "Integration CRM"
 
     local procedure InitRequestBodyForPost(entityType: Code[30]; var requestBody: Text)
     begin
-
         Clear(requestBody);
         RecNo := 0;
         Recs := EntityCRM.Count;
@@ -277,17 +289,23 @@ codeunit 50070 "Integration CRM"
     begin
         if jaEntity.ReadFrom(responseBody) then
             foreach jtEntity in jaEntity do begin
+
+                Clear(isError);
+                Clear(PaymentNo);
+                Clear(InvoiceNo);
+                Clear(EntryApply);
+                Clear(idCRM);
+                Clear(idBC);
+
                 isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
-                if not isError then begin
-                    Clear(idCRM);
-                    PaymentNo := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
-                    InvoiceNo := GetJSToken(jtEntity.AsObject(), 'bcInvoice').AsValue().AsText();
-                    EntryApply := GetJSToken(jtEntity.AsObject(), 'bcApply').AsValue().AsBoolean();
-                    if EntryApply then
-                        idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
-                    idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-                    PaymentCRMOnUpdateIdAfterSend(PaymentNo, InvoiceNo, EntryApply, idCRM, true);
-                end;
+                PaymentNo := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                InvoiceNo := GetJSToken(jtEntity.AsObject(), 'bcInvoice').AsValue().AsText();
+                EntryApply := GetJSToken(jtEntity.AsObject(), 'bcApply').AsValue().AsBoolean();
+                if not isError and EntryApply then
+                    idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
+                idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
+
+                PaymentCRMOnUpdateIdAfterSend(PaymentNo, InvoiceNo, EntryApply, idCRM, not isError);
             end;
     end;
 
@@ -303,17 +321,23 @@ codeunit 50070 "Integration CRM"
     begin
         if jaEntity.ReadFrom(responseBody) then
             foreach jtEntity in jaEntity do begin
+
+                Clear(isError);
+                Clear(idCRM);
+                Clear(bcNumber);
+                Clear(idBC);
+
                 isError := GetJSToken(jtEntity.AsObject(), 'error').AsValue().AsBoolean();
-                if not isError then begin
-                    bcNumber := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
-                    if StrLen(bcNumber) > MaxStrLen(Key1) then
-                        Key1 := GetUoMCodeBySystemId(entityType, bcNumber)
-                    else
-                        Key1 := bcNumber;
+                if not isError then
                     idCRM := GetJSToken(jtEntity.AsObject(), 'crmId').AsValue().AsText();
-                    idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
-                    EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, true);
-                end;
+                bcNumber := GetJSToken(jtEntity.AsObject(), 'bcNumber').AsValue().AsText();
+                idBC := GetJSToken(jtEntity.AsObject(), 'bcId').AsValue().AsText();
+                if StrLen(bcNumber) > MaxStrLen(Key1) then
+                    Key1 := GetUoMCodeBySystemId(entityType, bcNumber)
+                else
+                    Key1 := bcNumber;
+
+                EntityCRMOnUpdateIdAfterSend(entityType, Key1, '', idCRM, not isError);
             end;
     end;
 
@@ -1028,6 +1052,7 @@ codeunit 50070 "Integration CRM"
                 Body.Add('payment_amount', PaymentCRM.Amount);
                 Body.Add('payment_date', PaymentCRM."Payment Date");
                 Body.Add('apply', PaymentCRM.Apply);
+                // Body.Add('payment_method', GetPaymentMethodByEntryNo(PaymentCRM."Payment Entry No."));
 
                 bodyArray.Add(Body);
             end;
@@ -1331,7 +1356,6 @@ codeunit 50070 "Integration CRM"
             exit;
         end;
 
-
         locEntityCRM."Modify In CRM" := false;
         locEntityCRM.Modify(true);
     end;
@@ -1344,8 +1368,10 @@ codeunit 50070 "Integration CRM"
         if not CheckEnableIntegrationCRM() or (Key1 = '') then exit;
 
         locEntityCRM.Get(entityType, Key1, Key2);
-        locEntityCRM."Id CRM" := idCRM;
+        if ModifyInCRM then
+            locEntityCRM."Id CRM" := idCRM;
         locEntityCRM."Modify In CRM" := ModifyInCRM;
+        locEntityCRM."No. of Attempts to Run" += 1;
         locEntityCRM.Modify(true);
     end;
 
@@ -1356,12 +1382,15 @@ codeunit 50070 "Integration CRM"
         // check enable integration CRM
         if not CheckEnableIntegrationCRM() or (_PaymentNo = '') or (_InvoiceNo = '') then exit;
 
+        locPaymentCRM.SetCurrentKey("Payment No.", "Invoice No.", Apply);
         locPaymentCRM.SetRange("Payment No.", _PaymentNo);
         locPaymentCRM.SetRange("Invoice No.", _InvoiceNo);
         locPaymentCRM.SetRange(Apply, _Apply);
         locPaymentCRM.FindFirst();
-        locPaymentCRM."Id CRM" := idCRM;
+        if ModifyInCRM then
+            locPaymentCRM."Id CRM" := idCRM;
         locPaymentCRM."Modify In CRM" := ModifyInCRM;
+        locPaymentCRM."No. of Attempts to Run" += 1;
         locPaymentCRM.Modify(true);
     end;
 
@@ -1758,6 +1787,20 @@ codeunit 50070 "Integration CRM"
         exit(locSIH."CRM ID");
     end;
 
+    local procedure GetPaymentMethodByEntryNo(PaymentEntryNo: Integer): Text[100]
+    var
+        locCLE: Record "Cust. Ledger Entry";
+        locPM: Record "Payment Method";
+    begin
+        if locCLE.Get(PaymentEntryNo) and locPM.Get(locCLE."Payment Method Code") then begin
+            if locPM.Description <> '' then
+                exit(locPM.Description)
+            else
+                exit(locPM.Code);
+        end;
+        exit('');
+    end;
+
     local procedure GetCategoryId(ItemParentCategory: Code[20]): Guid
     var
         locItemCategory: Record "Item Category";
@@ -1854,5 +1897,10 @@ codeunit 50070 "Integration CRM"
             SRSetup.Init();
             SRSetup.Insert();
         end;
+    end;
+
+    local procedure InitEntity()
+    begin
+        EntityCRM.ModifyAll("No. of Attempts to Run", 0);
     end;
 }

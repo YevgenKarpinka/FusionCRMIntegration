@@ -42,6 +42,12 @@ table 50073 "Entity Setup"
             CaptionML = ENU = 'Rows Number',
                         RUS = 'Количество строк';
         }
+        field(7; "Maximum No. of Attempts to Run"; Integer)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'Maximum No. of Attempts to Run',
+                        RUS = 'Макс. кол-во попыток запуска';
+        }
     }
 
     keys

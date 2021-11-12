@@ -43,6 +43,11 @@ page 50074 "Entity Setup"
                     ApplicationArea = All;
 
                 }
+                field("Maximum No. of Attempts to Run"; Rec."Maximum No. of Attempts to Run")
+                {
+                    ApplicationArea = All;
+
+                }
             }
         }
     }

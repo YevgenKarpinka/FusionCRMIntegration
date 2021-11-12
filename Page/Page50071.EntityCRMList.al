@@ -23,6 +23,11 @@ page 50071 "Entity CRM List"
                     ApplicationArea = All;
 
                 }
+                field("No. of Attempts to Run"; Rec."No. of Attempts to Run")
+                {
+                    ApplicationArea = All;
+
+                }
                 field(Key1; Rec.Key1)
                 {
                     ApplicationArea = All;

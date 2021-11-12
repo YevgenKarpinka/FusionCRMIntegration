@@ -87,6 +87,12 @@ table 50071 "Entity CRM"
                         RUS = 'Приоритет';
             DataClassification = CustomerContent;
         }
+        field(14; "No. of Attempts to Run"; Integer)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'No. of Attempts to Run',
+                        RUS = 'Кол-во попыток запуска';
+        }
     }
 
     keys

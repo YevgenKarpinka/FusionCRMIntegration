@@ -97,6 +97,12 @@ table 50074 "Payment CRM"
                         RUS = 'Применение';
             DataClassification = CustomerContent;
         }
+        field(16; "No. of Attempts to Run"; Integer)
+        {
+            DataClassification = CustomerContent;
+            CaptionML = ENU = 'No. of Attempts to Run',
+                        RUS = 'Кол-во попыток запуска';
+        }
     }
 
     keys

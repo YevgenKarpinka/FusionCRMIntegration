@@ -23,6 +23,10 @@ page 50075 "Payment CRM"
                 {
                     ApplicationArea = All;
                 }
+                field("No. of Attempts to Run"; Rec."No. of Attempts to Run")
+                {
+                    ApplicationArea = All;
+                }
                 field("Payment No."; Rec."Payment No.")
                 {
                     ApplicationArea = All;
