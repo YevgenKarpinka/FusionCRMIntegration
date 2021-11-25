@@ -423,6 +423,7 @@ codeunit 50070 "Integration CRM"
     var
         bodyArray: JsonArray;
         EntitySetup: Record "Entity Setup";
+        locEntityCRM: Record "Entity CRM";
     begin
         EntitySetup.Get(lblItem);
         if EntitySetup."Rows Number" = 0 then
@@ -431,55 +432,75 @@ codeunit 50070 "Integration CRM"
         repeat
             RecNo += 1;
             if Item.Get(EntityCRM.Key1) then begin
-                Clear(Body);
+                if (Item.Description <> '') then begin
+                    Clear(Body);
 
-                Body.Add('bcid', Guid2APIStr(Item.SystemId));
-                Body.Add('item_number', Item."No.");
-                Body.Add('description', DelChr(Item.Description + Item."Description 2", '=', '"'));
-                if ItemDescr.Get(Item."No.") then begin
-                    Body.Add('name_eng', ItemDescr."Name ENG");
-                    Body.Add('name_eng_2', ItemDescr."Name ENG 2");
-                    Body.Add('name_ru', ItemDescr."Name RU");
-                    Body.Add('name_ru_2', ItemDescr."Name RU 2");
-                    Body.Add('description_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Description RU")));
-                    Body.Add('ingredients_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Ingredients RU")));
-                    Body.Add('indications_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Indications RU")));
-                    Body.Add('directions_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Directions RU")));
-                    Body.Add('warning', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Warning)));
-                    Body.Add('legal_disclaimer', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Legal Disclaimer")));
-                    Body.Add('description_eng', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Description)));
-                    Body.Add('ingredients', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Ingredients)));
-                    Body.Add('indications', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Indications)));
-                    Body.Add('directions', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Directions)));
+                    Body.Add('bcid', Guid2APIStr(Item.SystemId));
+                    Body.Add('item_number', Item."No.");
+                    Body.Add('description', DelChr(Item.Description + Item."Description 2", '=', '"'));
+                    if ItemDescr.Get(Item."No.") then begin
+                        Body.Add('name_eng', ItemDescr."Name ENG");
+                        Body.Add('name_eng_2', ItemDescr."Name ENG 2");
+                        Body.Add('name_ru', ItemDescr."Name RU");
+                        Body.Add('name_ru_2', ItemDescr."Name RU 2");
+                        Body.Add('description_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Description RU")));
+                        Body.Add('ingredients_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Ingredients RU")));
+                        Body.Add('indications_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Indications RU")));
+                        Body.Add('directions_ru', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Directions RU")));
+                        Body.Add('warning', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Warning)));
+                        Body.Add('legal_disclaimer', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo("Legal Disclaimer")));
+                        Body.Add('description_eng', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Description)));
+                        Body.Add('ingredients', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Ingredients)));
+                        Body.Add('indications', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Indications)));
+                        Body.Add('directions', Blob2TextFromRec(Database::"Item Description", ItemDescr.RecordId, ItemDescr.FieldNo(Directions)));
+                    end;
+                    Body.Add('blocked', GetItemBlocked(Item));
+                    Body.Add('blocked_reason', Item."Block Reason");
+                    Body.Add('baseuom', Guid2APIStr(GetUoMIdByCode(Item."Base Unit of Measure")));
+                    Body.Add('price', Item."Unit Price");
+                    Body.Add('promotional_price', GetPromotionalPrice(Item."No."));
+                    Body.Add('productuom', GetItemUoM(Item."No."));
+                    if glManufacturer.Get(Item."Manufacturer Code") then begin
+                        Body.Add('manufacturer_eng', glManufacturer.Name);
+                        Body.Add('manufacturer_ru', glManufacturer."Name RU");
+                    end;
+                    if glBrand.Get(Item."Brand Code", Item."Manufacturer Code") then begin
+                        Body.Add('brand_eng', glBrand.Name);
+                        Body.Add('brand_ru', glBrand."Name RU");
+                    end;
+
+                    if ItemCategory.Get(Item."Item Category Code") then
+                        Body.Add('category', Guid2APIStr(ItemCategory.SystemId));
+
+                    if ItemFilterGroupExist(Item."No.") then
+                        Body.Add('filters_group', jsonGetFilterGroupArray(Item."No."));
+
+                    bodyArray.Add(Body);
                 end;
-                Body.Add('blocked', Item.Blocked or Item."Sales Blocked");
-                Body.Add('blocked_reason', Item."Block Reason");
-                Body.Add('baseuom', Guid2APIStr(GetUoMIdByCode(Item."Base Unit of Measure")));
-                Body.Add('price', Item."Unit Price");
-                Body.Add('promotional_price', GetPromotionalPrice(Item."No."));
-                Body.Add('productuom', GetItemUoM(Item."No."));
-                if glManufacturer.Get(Item."Manufacturer Code") then begin
-                    Body.Add('manufacturer_eng', glManufacturer.Name);
-                    Body.Add('manufacturer_ru', glManufacturer."Name RU");
+            end else begin
+                if IsNullGuid(EntityCRM."Id CRM") then begin
+                    locEntityCRM.Get(EntityCRM.Code, EntityCRM.Key1, EntityCRM.Key2);
+                    locEntityCRM.Delete(true);
+                end else begin
+                    Clear(Body);
+                    Body.Add('bcid', Guid2APIStr(EntityCRM."Id BC"));
+                    Body.Add('item_number', EntityCRM.Key1);
+                    Body.Add('blocked', true);
+                    bodyArray.Add(Body);
                 end;
-                if glBrand.Get(Item."Brand Code", Item."Manufacturer Code") then begin
-                    Body.Add('brand_eng', glBrand.Name);
-                    Body.Add('brand_ru', glBrand."Name RU");
-                end;
-
-                if ItemCategory.Get(Item."Item Category Code") then
-                    Body.Add('category', Guid2APIStr(ItemCategory.SystemId));
-
-                if ItemFilterGroupExist(Item."No.") then
-                    Body.Add('filters_group', jsonGetFilterGroupArray(Item."No."));
-
-                bodyArray.Add(Body);
             end;
 
             AfterAddEntityToRequestBody();
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
+    end;
+
+    local procedure GetItemBlocked(_Item: Record Item): Boolean
+    begin
+        if _Item.Blocked or _Item."Sales Blocked" then
+            exit(true);
+        exit(false);
     end;
 
     local procedure AfterAddPaymentToRequestBody(var PaymentCRM: Record "Payment CRM")
@@ -598,6 +619,8 @@ codeunit 50070 "Integration CRM"
                 Body.Add('fax_no', Customer."Fax No.");
 
                 bodyArray.Add(Body);
+            end else begin
+                DeleteEntity(lblCustomer, EntityCRM.Key1, '');
             end;
 
             AfterAddEntityToRequestBody();
@@ -1887,7 +1910,7 @@ codeunit 50070 "Integration CRM"
     var
         ItemFilterGroup: Record "Item Filter Group";
     begin
-        ItemFilterGroup.SetRange("Item No.", Item."No.");
+        ItemFilterGroup.SetRange("Item No.", ItemNo);
         exit(ItemFilterGroup.FindFirst());
     end;
 
@@ -1903,4 +1926,24 @@ codeunit 50070 "Integration CRM"
     begin
         EntityCRM.ModifyAll("No. of Attempts to Run", 0);
     end;
+
+    local procedure DeleteEntity(entityType: Code[30]; Key1: Code[20]; Key2: Code[20]);
+    var
+        locEntityCRM: Record "Entity CRM";
+    begin
+        if locEntityCRM.Get(entityType, Key1, Key2) then begin
+            if IsNullGuid(locEntityCRM."Id CRM") then
+                locEntityCRM.Delete()
+            else begin
+                case entityType of
+                    lblCustomer:
+                        begin
+                            locEntityCRM."Modify In CRM" := true;
+                            locEntityCRM.Modify();
+                        end;
+                end;
+            end;
+        end;
+    end;
+
 }
