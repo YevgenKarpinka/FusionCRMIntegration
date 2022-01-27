@@ -382,7 +382,7 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -413,7 +413,7 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -490,7 +490,7 @@ codeunit 50070 "Integration CRM"
                 end;
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -518,15 +518,15 @@ codeunit 50070 "Integration CRM"
                 PaymentCRM.SetFilter("Payment Entry No.", '%1..', PaymentCRM."Payment Entry No." + 1);
     end;
 
-    local procedure AfterAddEntityToRequestBody()
+    local procedure AfterAddEntityToRequestBody(RowsNumber: Integer)
     begin
         if GuiAllowed then
             Window.Update(2, RecNo);
 
-        if RecNo < 100 then
+        if RecNo < RowsNumber then
             EntityCRM.Next();
 
-        if (RecNo = 100) then
+        if (RecNo = RowsNumber) then
             EntityCRM.SetFilter(Key1, '%1..', EntityCRM.Key1)
         else
             if (Recs = RecNo) then
@@ -623,7 +623,7 @@ codeunit 50070 "Integration CRM"
                 DeleteEntity(lblCustomer, EntityCRM.Key1, '');
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -684,7 +684,7 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -760,7 +760,7 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -900,7 +900,7 @@ codeunit 50070 "Integration CRM"
                     end;
                 end;
             end;
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -1029,7 +1029,7 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -1108,7 +1108,7 @@ codeunit 50070 "Integration CRM"
                 bodyArray.Add(Body);
             end;
 
-            AfterAddEntityToRequestBody();
+            AfterAddEntityToRequestBody(EntitySetup."Rows Number");
         until (RecNo = EntitySetup."Rows Number") or (Recs = RecNo);
 
         bodyArray.WriteTo(requestBody);
@@ -1548,7 +1548,6 @@ codeunit 50070 "Integration CRM"
     end;
 
     procedure GetJSToken(_JSONObject: JsonObject; TokenKey: Text) _JSONToken: JsonToken
-
     begin
         if not _JSONObject.Get(TokenKey, _JSONToken) then
             Error('Could not find a token with key %1', TokenKey);
@@ -1839,13 +1838,13 @@ codeunit 50070 "Integration CRM"
     begin
         case entityType of
             lblItemCategory:
-                exit(GetItemCategiryRank(Key1));
+                exit(GetItemCategoryRank(Key1));
             else
                 exit(0)
         end;
     end;
 
-    local procedure GetItemCategiryRank(Key1: Code[20]): Integer
+    local procedure GetItemCategoryRank(Key1: Code[20]): Integer
     var
         locItemCategory: Record "Item Category";
     begin
@@ -1911,6 +1910,8 @@ codeunit 50070 "Integration CRM"
         ItemFilterGroup: Record "Item Filter Group";
     begin
         ItemFilterGroup.SetRange("Item No.", ItemNo);
+        ItemFilterGroup.SetFilter("Filter Group", '<>%1', '');
+        ItemFilterGroup.SetFilter("Filter Value", '<>%1', '');
         exit(ItemFilterGroup.FindFirst());
     end;
 

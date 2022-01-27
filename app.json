@@ -2,7 +2,7 @@
   "id": "4a7fccc5-90e5-45f5-86ee-5d8f99429fc5",
   "name": "Fusion Integration CRM",
   "publisher": "TComTech",
-  "version": "18.0.0.3",
+  "version": "18.0.0.5",
   "brief": "",
   "description": "",
   "privacyStatement": "",
@@ -34,6 +34,6 @@
     }
   ],
   "contextSensitiveHelpUrl": "https://FusionIntegrationCRM.com/help/",
-  "showMyCode": true,
+  "showMyCode": false,
   "runtime": "7.0"
 }
